@@ -1,27 +1,27 @@
-(ns konserve-template.string-test
+(ns konserve-h2.core-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve-template.string :refer [new-your-store delete-store]]
+            [konserve-h2.core :refer [new-h2-store delete-store] :as khc]
+            [hasch.core :as hasch]
             [malli.generator :as mg])
   (:import  [clojure.lang ExceptionInfo]))
 
 (deftest get-nil-tests
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "nil"))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
       (is (= :default (<!! (k/get-in store [:fuu] :default))))
       (<!! (k/bget store :foo (fn [res] 
-                                (is (nil? res)))))
-      (delete-store store))))
+                                (is (nil? res))))))))
 
 (deftest write-value-tests
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "write"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))
@@ -34,7 +34,7 @@
 (deftest update-value-tests
   (testing "Test updating values in the store"
     (let [_ (println "Updating values in the store")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "update"))]
       (<!! (k/assoc store :foo :baritone))
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
@@ -44,7 +44,7 @@
 (deftest exists-tests
   (testing "Test check for existing key in the store"
     (let [_ (println "Checking if keys exist")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "exists"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :baritone))
       (is  (<!! (k/exists? store :foo)))
@@ -55,24 +55,30 @@
 (deftest binary-tests
   (testing "Test writing binary date"
     (let [_ (println "Reading and writing binary data")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "binary"))
+          cb (atom false)
+          cb2 (atom false)]
       (is (not (<!! (k/exists? store :binbar))))
-      (<!! (k/bget store :binbar (fn [ans] (is (nil? ans)))))
+      (<!! (k/bget store :binbar (fn [ans] (is (nil? (:input-stream ans))))))
       (<!! (k/bassoc store :binbar (byte-array (range 10))))
-      (<!! (k/bget store :binbar (fn [{:keys [input-stream]}]
-                                    (is (= (map byte (slurp input-stream))
+      (<!! (k/bget store :binbar (fn [res]
+                                    (reset! cb true)
+                                    (is (= (map byte (slurp (:input-stream res)))
                                            (range 10))))))
       (<!! (k/bassoc store :binbar (byte-array (map inc (range 10))))) 
-      (<!! (k/bget store :binbar (fn [{:keys [input-stream]}]
-                                    (is (= (map byte (slurp input-stream))
+      (<!! (k/bget store :binbar (fn [res]
+                                    (reset! cb2 true)
+                                    (is (= (map byte (slurp (:input-stream res)))
                                            (map inc (range 10)))))))                                          
       (is (<!! (k/exists? store :binbar)))
+      (is @cb)
+      (is @cb2)
       (delete-store store))))
   
 (deftest key-tests
   (testing "Test getting keys from the store"
     (let [_ (println "Getting keys from store")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "key"))]
       (is (= #{} (<!! (async/into #{} (k/keys store)))))
       (<!! (k/assoc store :baz 20))
       (<!! (k/assoc store :binbar 20))
@@ -82,7 +88,7 @@
 (deftest append-test
   (testing "Test the append store functionality."
     (let [_ (println "Appending to store")
-          store (<!! (new-your-store "critical"))]
+          store (<!! (new-h2-store "./temp/db" :table "append"))]
       (<!! (k/append store :foo {:bar 42}))
       (<!! (k/append store :foo {:bar 43}))
       (is (= (<!! (k/log store :foo))
@@ -94,12 +100,6 @@
                               []))
              [{:bar 42} {:bar 43}]))
       (delete-store store))))
-
-(deftest invalid-store-test
-  (testing "Invalid store functionality."
-    (let [_ (println "Connecting to invalid store")
-          store (<!! (new-your-store nil))]
-      (is (= ExceptionInfo (type store))))))
 
 (def home
   [:map
@@ -116,7 +116,7 @@
 (deftest realistic-test
   (testing "Realistic data test."
     (let [_ (println "Entering realistic data")
-          store (<!! (new-your-store "critical"))
+          store (<!! (new-h2-store "./temp/db" :table "realistic"))
           home (mg/generate home {:size 20 :seed 2})
           address (:address home)
           addressless (dissoc home :address)
@@ -146,7 +146,7 @@
 (deftest bulk-test
   (testing "Bulk data test."
     (let [_ (println "Writing bulk data")
-          store (<!! (new-your-store "critical"))
+          store (<!! (new-h2-store "./temp/db" :table "bulk"))
           string20MB (apply str (vec (range 3000000)))
           range2MB 2097152
           sevens (repeat range2MB 7)]
@@ -160,11 +160,23 @@
                                            sevens)))))
       (delete-store store))))  
 
+; (deftest version-tests
+;   (testing "Test check for version being store with data"
+;     (let [_ (println "Check if version is stored")
+;           store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9211/"}}))
+;           id (str (hasch/uuid :foo))]
+;       (<!! (k/assoc store :foo :bar))
+;       (is (= :bar (<!! (k/get store :foo))))
+;       (is (= (byte kcc/version) 
+;              (-> (car/wcar (:conn store) (car/hmget id "meta")) first vec first)))
+;       (is (= (byte kcc/version) 
+;              (-> (car/wcar (:conn store) (car/hmget id "data")) first vec first)))             
+;       (delete-store store))))
+
 (deftest exceptions-test
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
-          store (<!! (new-your-store "critical"))
-          corrupt (update-in store [:store] #(dissoc % :auth))] ; let's corrupt our store
+          corrupt (<!! (new-h2-store "./temp/db" :table "exceptions"))] ; let's corrupt our store
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
@@ -175,5 +187,4 @@
       (is (= ExceptionInfo (type (<!! (k/keys corrupt)))))
       (is (= ExceptionInfo (type (<!! (k/bget corrupt :bad (fn [_] nil))))))   
       (is (= ExceptionInfo (type (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))   
-      (is (= ExceptionInfo (type (<!! (delete-store corrupt)))))
-      (delete-store store))))
+      (is (= ExceptionInfo (type (<!! (delete-store corrupt))))))))
