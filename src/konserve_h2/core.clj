@@ -47,7 +47,7 @@
 
 (defn update-it 
   [conn id data]
-  (j/execute! (:db conn) [(str "insert into " (:table conn) " values('" id "', '" (first data) "', '" (second data) "')")]))
+  (j/execute! (:db conn) [(str "merge into " (:table conn) " key(id) values('" id "', '" (first data) "', '" (second data) "')")]))
 
 (defn delete-it 
   [conn id]
@@ -63,7 +63,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
-  ;(.printStackTrace e)
+  (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -120,9 +120,10 @@
                          (when oval'
                           (-deserialize serializer read-handlers oval'))]            
                 [nmeta nval] [(meta-up-fn (first old-val)) 
-                         (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
+                              (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
                 ^StringWriter mbaos (StringWriter.)
                 ^StringWriter vbaos (StringWriter.)]
+            (println old-val)
             (when nmeta (-serialize serializer mbaos write-handlers nmeta))
             (when nval (-serialize serializer vbaos write-handlers nval))    
             (update-it conn (str-uuid fkey) [(.toString mbaos) (.toString vbaos)])
@@ -205,7 +206,7 @@
                     :password ""}]
             (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta varchar(65000), data varchar(65000))")])
             (async/put! res-ch
-              (map->H2Store { :conn {:db db :table table}
+              (map->H2Store { :conn {:db db :table (str "`" table "`")}
                               :read-handlers read-handlers
                               :write-handlers write-handlers
                               :serializer serializer
@@ -217,7 +218,7 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))])
+        (println  (-> store :conn :table) (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))]))
         (async/close! res-ch)
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          
     res-ch))

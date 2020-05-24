@@ -21,7 +21,7 @@
 (deftest write-value-tests
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-h2-store "./temp/db" :table "write"))]
+          store (<!! (new-h2-store "./temp/db" :table "test_write"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))
@@ -34,7 +34,7 @@
 (deftest update-value-tests
   (testing "Test updating values in the store"
     (let [_ (println "Updating values in the store")
-          store (<!! (new-h2-store "./temp/db" :table "update"))]
+          store (<!! (new-h2-store "./temp/db" :table "test_update"))]
       (<!! (k/assoc store :foo :baritone))
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
@@ -44,7 +44,7 @@
 (deftest exists-tests
   (testing "Test check for existing key in the store"
     (let [_ (println "Checking if keys exist")
-          store (<!! (new-h2-store "./temp/db" :table "exists"))]
+          store (<!! (new-h2-store "./temp/db" :table "test_exists"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :baritone))
       (is  (<!! (k/exists? store :foo)))
@@ -55,7 +55,7 @@
 (deftest binary-tests
   (testing "Test writing binary date"
     (let [_ (println "Reading and writing binary data")
-          store (<!! (new-h2-store "./temp/db" :table "binary"))
+          store (<!! (new-h2-store "./temp/db" :table "test_binary"))
           cb (atom false)
           cb2 (atom false)]
       (is (not (<!! (k/exists? store :binbar))))
@@ -78,7 +78,7 @@
 (deftest key-tests
   (testing "Test getting keys from the store"
     (let [_ (println "Getting keys from store")
-          store (<!! (new-h2-store "./temp/db" :table "key"))]
+          store (<!! (new-h2-store "./temp/db" :table "test_key"))]
       (is (= #{} (<!! (async/into #{} (k/keys store)))))
       (<!! (k/assoc store :baz 20))
       (<!! (k/assoc store :binbar 20))
@@ -88,7 +88,7 @@
 (deftest append-test
   (testing "Test the append store functionality."
     (let [_ (println "Appending to store")
-          store (<!! (new-h2-store "./temp/db" :table "append"))]
+          store (<!! (new-h2-store "./temp/db" :table "test_append"))]
       (<!! (k/append store :foo {:bar 42}))
       (<!! (k/append store :foo {:bar 43}))
       (is (= (<!! (k/log store :foo))
@@ -116,7 +116,7 @@
 (deftest realistic-test
   (testing "Realistic data test."
     (let [_ (println "Entering realistic data")
-          store (<!! (new-h2-store "./temp/db" :table "realistic"))
+          store (<!! (new-h2-store "./temp/db" :table "test_realistic"))
           home (mg/generate home {:size 20 :seed 2})
           address (:address home)
           addressless (dissoc home :address)
@@ -146,7 +146,7 @@
 (deftest bulk-test
   (testing "Bulk data test."
     (let [_ (println "Writing bulk data")
-          store (<!! (new-h2-store "./temp/db" :table "bulk"))
+          store (<!! (new-h2-store "./temp/db" :table "test_bulk"))
           string20MB (apply str (vec (range 3000000)))
           range2MB 2097152
           sevens (repeat range2MB 7)]
@@ -176,7 +176,7 @@
 (deftest exceptions-test
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
-          corrupt (<!! (new-h2-store "./temp/db" :table "exceptions"))] ; let's corrupt our store
+          corrupt (<!! (new-h2-store "./temp/db" :table "test_exceptions"))] ; let's corrupt our store
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
