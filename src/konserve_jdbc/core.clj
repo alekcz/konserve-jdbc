@@ -3,6 +3,7 @@
   (:require [clojure.core.async :as async]
             [konserve.serializers :as ser]
             [hasch.core :as hasch]
+            [clojure.string :as str]
             [clojure.java.jdbc :as j]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
@@ -13,7 +14,8 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [org.h2.jdbc JdbcBlob JdbcConnection]))
+            [java.sql Connection Blob]
+            [java.net URI]))
 
 (set! *warn-on-reflection* 1)
 (def version 1)
@@ -35,14 +37,14 @@
   (->> db j/get-connection (j/add-connection db)))
 
 (defn close-conn [db]
-  (.close ^JdbcConnection (db :connection)))
+  (.close ^Connection (db :connection)))
 
 (defn get-it 
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
-        ^JdbcBlob data (:data res')
-        ^JdbcBlob meta (:meta res')
+        ^Blob data (:data res')
+        ^Blob meta (:meta res')
         res (if (and data meta)
               [(strip-version (.getBytes meta 0 (.length meta))) (strip-version (.getBytes data 0 (.length data)))]
               [nil nil])]
@@ -53,7 +55,7 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
-        ^JdbcBlob data (:data res')
+        ^Blob data (:data res')
         res (when data (strip-version (.getBytes data 0 (.length data))))]
     (close-conn db)
     res))
@@ -62,7 +64,7 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
-        ^JdbcBlob meta (:meta res')
+        ^Blob meta (:meta res')
         res (when meta (strip-version (.getBytes meta 0 (.length meta))))]
     (close-conn db)
     res))
@@ -74,11 +76,16 @@
 
   ;; INSERT INTO tablename (a, b, c) values (1, 2, 10)
   ;; ON CONFLICT (a) DO UPDATE SET c = tablename.c + 1;
-  (println conn)
   (let [db (get-conn (:db conn))
-        ^JdbcConnection raw-conn (db :connection)
-        p (j/prepare-statement raw-conn (str "merge into " (:table conn) " key(id) values(?, ?, ?)"))]
-    (j/execute! (:db conn) [p id (add-version (first data)) (add-version (second data))])
+        ^Connection raw-conn (db :connection)
+        p (j/prepare-statement 
+            raw-conn
+            (str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?) on conflict (id) do update set meta = ?, data = ?" ))]
+    (j/execute! (:db conn) 
+      [p id (add-version (first data)) 
+            (add-version (second data)) 
+            (add-version (first data)) 
+            (add-version (second data))])
     (close-conn db)))
 
 (defn delete-it 
@@ -89,7 +96,7 @@
   [conn]
   (let [db (get-conn (:db conn))
         res' (j/query db [(str "select id,meta from " (:table conn))])
-        res (doall (map #(strip-version (.getBytes ^JdbcBlob (:meta %) 0 (.length ^JdbcBlob (:meta %)))) res'))]
+        res (doall (map #(strip-version (.getBytes ^Blob (:meta %) 0 (.length ^Blob (:meta %)))) res'))]
     (close-conn db)
     res))
 
@@ -100,6 +107,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
+  (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -226,27 +234,21 @@
 
 
 (defn new-jdbc-store
-  ([path & {:keys [table store serializer read-handlers write-handlers]
+  ([db & {:keys [table serializer read-handlers write-handlers]
                     :or {table "konserve"
-                         store "file"
                          serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)]                      
       (async/thread 
         (try
-          (let [db {:classname   "org.h2.Driver" 
-                    :subprotocol (str "h2:" store)
-                    :subname (str "" path "/" table ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;")
-                    :user     "sa"
-                    :password ""}]
-            (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta blob, data blob)")])
-            (async/put! res-ch
-              (map->JDBCStore { :conn {:db db :table (str "`" table "`")}
+          (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta blob, data blob)")])
+          (async/put! res-ch
+            (map->JDBCStore { :conn {:db db :table (str "`" table "`")}
                               :read-handlers read-handlers
                               :write-handlers write-handlers
                               :serializer serializer
-                              :locks (atom {})})))
+                              :locks (atom {})}))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
       res-ch)))
 
@@ -254,6 +256,7 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
+        (println (-> store :conn :db))
         (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))])
         (async/close! res-ch)
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          

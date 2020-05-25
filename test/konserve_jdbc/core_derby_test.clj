@@ -8,7 +8,7 @@
             [clojure.java.jdbc :as j]
             [clojure.java.io :as io])
   (:import  [clojure.lang ExceptionInfo]
-            [org.h2.jdbc JdbcBlob]
+            [java.sql Blob]
             [java.io File]))
 
 
@@ -189,12 +189,12 @@
       (is (= (byte khc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^JdbcBlob meta (:meta res)]
+                      ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec first )))))
       (is (= (byte khc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^JdbcBlob data (:data res)]
+                      ^Blob data (:data res)]
                   (-> (.getBytes data 0 (.length data)) vec first )))))           
       (delete-store store))))
 
