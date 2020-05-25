@@ -4,7 +4,7 @@ An [H2](https://www.h2database.com/html/main.html) backend for [konserve](https:
 
 ## Status
 
-![master](https://github.com/alekcz/konserve-h2/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-h2/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-h2) 
+![master](https://github.com/alekcz/konserve-h2/workflows/master/badge.svg?branch=master) [![codecov](https://codecov.io/gh/alekcz/konserve-h2/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-h2) 
 
 ## Usage
 
