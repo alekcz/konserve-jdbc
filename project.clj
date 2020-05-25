@@ -8,6 +8,6 @@
                  [com.h2database/h2 "1.4.200"]
                  [org.clojure/java.jdbc "0.7.11"]
                  [io.replikativ/konserve "0.6.0-20200512.093105-1"]]
-  :repl-options {:init-ns konserve-template.core}
+  :repl-options {:init-ns konserve-h2.core}
   :plugins [[lein-cloverage "1.1.3-SNAPSHOT"]]
   :profiles { :dev {:dependencies [[metosin/malli "0.0.1-SNAPSHOT"]]}})
