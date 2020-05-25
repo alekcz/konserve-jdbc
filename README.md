@@ -8,7 +8,7 @@ An [H2](https://www.h2database.com/html/main.html) backend for [konserve](https:
 
 ## Usage
 
-[![Clojars Project](https://img.shields.io/clojars/v/alekcz/konserve-h2.svg)](http://clojars.org/alekcz/konserve-h2)
+[![Clojars Project](https://img.shields.io/clojars/v/alekcz/konserve-h2.svg)](https://clojars.org/alekcz/konserve-h2)
 
 `[alekcz/konserve-h2 "0.1.0-SNAPSHOT"]`
 
