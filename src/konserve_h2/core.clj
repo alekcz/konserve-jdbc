@@ -12,7 +12,8 @@
                                         -serialize -deserialize
                                         PKeyIterable
                                         -keys]])
-  (:import  [java.io ByteArrayInputStream ByteArrayOutputStream StringWriter]))
+  (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
+            [org.h2.jdbc JdbcBlob]))
 
 (set! *warn-on-reflection* 1)
 (def version 1)
@@ -32,22 +33,33 @@
   
 (defn get-it 
   [conn id]
-  (let [res (first (j/query (:db conn) [(str "select * from " (:table conn) " where id = '" id "'")]))]
-    [(:meta res) (:data res)])) 
+  (j/with-db-connection [db (:db conn)]
+    (let [res (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
+          ^JdbcBlob data (:data res)
+          ^JdbcBlob meta (:meta res)]
+      (if (and data meta)
+        [(strip-version (.getBytes meta 0 (.length meta)))
+         (strip-version (.getBytes data 0 (.length data)))]
+        [nil nil])))) 
 
 (defn get-it-only
   [conn id]
-  (let [res (first (j/query (:db conn) [(str "select id,data from " (:table conn) " where id = '" id "'")]))]
-    (:data res))) 
+  (j/with-db-connection [db (:db conn)]
+    (let [res (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
+          ^JdbcBlob data (:data res)]
+      (when data (strip-version (.getBytes data 0 (.length data)))))))
 
 (defn get-meta 
   [conn id]
-  (let [res (first (j/query (:db conn) [(str "select id,meta from " (:table conn) " where id = '" id "'")]))]
-    (:meta res))) 
+  (j/with-db-connection [db (:db conn)]
+    (let [res (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
+          ^JdbcBlob meta (:meta res)]
+      (when meta (strip-version (.getBytes meta 0 (.length meta)))))))
 
 (defn update-it 
   [conn id data]
-  (j/execute! (:db conn) [(str "merge into " (:table conn) " key(id) values('" id "', '" (first data) "', '" (second data) "')")]))
+  (let [p (j/prepare-statement (j/get-connection (:db conn)) (str "merge into " (:table conn) " key(id) values(?, ?, ?)"))]
+    (j/execute! (:db conn) [p id (add-version (first data)) (add-version (second data))])))
 
 (defn delete-it 
   [conn id]
@@ -55,7 +67,13 @@
 
 (defn get-keys 
   [conn]
-  [])
+  (j/with-db-connection [db (:db conn)]
+    (let [res (j/query db [(str "select id,meta from " (:table conn))])]
+      (doall 
+        (map 
+          #(strip-version (.getBytes ^JdbcBlob (:meta %) 0 (.length ^JdbcBlob (:meta %)))) 
+          res)))))
+
 
 (defn str-uuid 
   [key] 
@@ -63,7 +81,6 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
-  (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -121,12 +138,11 @@
                           (-deserialize serializer read-handlers oval'))]            
                 [nmeta nval] [(meta-up-fn (first old-val)) 
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
-                ^StringWriter mbaos (StringWriter.)
-                ^StringWriter vbaos (StringWriter.)]
-            (println old-val)
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
+                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
             (when nmeta (-serialize serializer mbaos write-handlers nmeta))
             (when nval (-serialize serializer vbaos write-handlers nval))    
-            (update-it conn (str-uuid fkey) [(.toString mbaos) (.toString vbaos)])
+            (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
             (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
@@ -180,9 +196,9 @@
           (let [key-stream (get-keys conn)
                 keys' (when key-stream
                         (for [k key-stream]
-                          (let [bais (ByteArrayInputStream. (get-meta conn k))]
+                          (let [bais (ByteArrayInputStream. k)]
                             (-deserialize serializer read-handlers bais))))
-                keys (map :key keys')]
+                keys (doall (map :key keys'))]
             (doall
               (map #(async/put! res-ch %) keys))
             (async/close! res-ch)) 
@@ -193,7 +209,7 @@
 (defn new-h2-store
   ([path & {:keys [table serializer read-handlers write-handlers]
                     :or {table "konserve"
-                         serializer (ser/string-serializer)
+                         serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)]                      
@@ -201,10 +217,10 @@
         (try
           (let [db {:classname   "org.h2.Driver" 
                     :subprotocol "h2:file" 
-                    :subname (str "" path "/" table)
+                    :subname (str "" path "/" table ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE")
                     :user     "sa"
                     :password ""}]
-            (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta varchar(65000), data varchar(65000))")])
+            (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta blob, data blob)")])
             (async/put! res-ch
               (map->H2Store { :conn {:db db :table (str "`" table "`")}
                               :read-handlers read-handlers
@@ -218,7 +234,8 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (println  (-> store :conn :table) (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))]))
+        (j/with-db-connection [db (-> store :conn :db)]
+          (j/execute! db [(str "drop table " (-> store :conn :table))]))
         (async/close! res-ch)
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          
     res-ch))

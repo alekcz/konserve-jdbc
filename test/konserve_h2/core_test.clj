@@ -4,8 +4,10 @@
             [konserve.core :as k]
             [konserve-h2.core :refer [new-h2-store delete-store] :as khc]
             [hasch.core :as hasch]
-            [malli.generator :as mg])
-  (:import  [clojure.lang ExceptionInfo]))
+            [malli.generator :as mg]
+            [clojure.java.jdbc :as j])
+  (:import  [clojure.lang ExceptionInfo]
+            [org.h2.jdbc JdbcBlob]))
 
 (deftest get-nil-tests
   (testing "Test getting on empty store"
@@ -160,23 +162,30 @@
                                            sevens)))))
       (delete-store store))))  
 
-; (deftest version-tests
-;   (testing "Test check for version being store with data"
-;     (let [_ (println "Check if version is stored")
-;           store (<!! (new-carmine-store {:pool {} :spec {:uri "redis://localhost:9211/"}}))
-;           id (str (hasch/uuid :foo))]
-;       (<!! (k/assoc store :foo :bar))
-;       (is (= :bar (<!! (k/get store :foo))))
-;       (is (= (byte kcc/version) 
-;              (-> (car/wcar (:conn store) (car/hmget id "meta")) first vec first)))
-;       (is (= (byte kcc/version) 
-;              (-> (car/wcar (:conn store) (car/hmget id "data")) first vec first)))             
-;       (delete-store store))))
+(deftest version-tests
+  (testing "Test check for version being store with data"
+    (let [_ (println "Check if version is stored")
+          store (<!! (new-h2-store "./temp/db" :table "test_version"))
+          id (str (hasch/uuid :foo))]
+      (<!! (k/assoc store :foo :bar))
+      (is (= :bar (<!! (k/get store :foo))))
+      (is (= (byte khc/version) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
+                      ^JdbcBlob meta (:meta res)]
+                  (-> (.getBytes meta 0 (.length meta)) vec first )))))
+      (is (= (byte khc/version) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
+                      ^JdbcBlob data (:data res)]
+                  (-> (.getBytes data 0 (.length data)) vec first )))))           
+      (delete-store store))))
 
 (deftest exceptions-test
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
-          corrupt (<!! (new-h2-store "./temp/db" :table "test_exceptions"))] ; let's corrupt our store
+          store (<!! (new-h2-store "./temp/db" :table "test_exceptions"))
+          corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
@@ -187,4 +196,5 @@
       (is (= ExceptionInfo (type (<!! (k/keys corrupt)))))
       (is (= ExceptionInfo (type (<!! (k/bget corrupt :bad (fn [_] nil))))))   
       (is (= ExceptionInfo (type (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))   
-      (is (= ExceptionInfo (type (<!! (delete-store corrupt))))))))
+      (is (= ExceptionInfo (type (<!! (delete-store corrupt)))))
+      (delete-store store))))
