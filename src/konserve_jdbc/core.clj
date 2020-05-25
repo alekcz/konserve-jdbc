@@ -1,4 +1,4 @@
-(ns konserve-h2.core
+(ns konserve-jdbc.core
   "Address globally aggregated immutable key-value conn(s)."
   (:require [clojure.core.async :as async]
             [konserve.serializers :as ser]
@@ -69,6 +69,12 @@
 
 (defn update-it 
   [conn id data]
+  ;; INSERT INTO tablename (a,b,c) VALUES (1,2,3)
+  ;; ON DUPLICATE KEY UPDATE c=c+1;
+
+  ;; INSERT INTO tablename (a, b, c) values (1, 2, 10)
+  ;; ON CONFLICT (a) DO UPDATE SET c = tablename.c + 1;
+  (println conn)
   (let [db (get-conn (:db conn))
         ^JdbcConnection raw-conn (db :connection)
         p (j/prepare-statement raw-conn (str "merge into " (:table conn) " key(id) values(?, ?, ?)"))]
@@ -101,7 +107,7 @@
   { :input-stream  (ByteArrayInputStream. bytes) 
     :size (count bytes)})
 
-(defrecord H2Store [conn serializer read-handlers write-handlers locks]
+(defrecord JDBCStore [conn serializer read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
   (-exists? 
     [this key] 
@@ -219,7 +225,7 @@
         res-ch)))
 
 
-(defn new-h2-store
+(defn new-jdbc-store
   ([path & {:keys [table store serializer read-handlers write-handlers]
                     :or {table "konserve"
                          store "file"
@@ -231,12 +237,12 @@
         (try
           (let [db {:classname   "org.h2.Driver" 
                     :subprotocol (str "h2:" store)
-                    :subname (str "" path "/" table ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE")
+                    :subname (str "" path "/" table ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;")
                     :user     "sa"
                     :password ""}]
             (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta blob, data blob)")])
             (async/put! res-ch
-              (map->H2Store { :conn {:db db :table (str "`" table "`")}
+              (map->JDBCStore { :conn {:db db :table (str "`" table "`")}
                               :read-handlers read-handlers
                               :write-handlers write-handlers
                               :serializer serializer

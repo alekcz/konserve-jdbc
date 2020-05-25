@@ -1,19 +1,19 @@
-# konserve-h2
+# konserve-jdbc
 
-An [H2](https://www.h2database.com/html/main.html) backend for [konserve](https://github.com/replikativ/konserve). 
+An [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://github.com/replikativ/konserve). 
 
 ## Status
 
-![master](https://github.com/alekcz/konserve-h2/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-h2/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-h2) 
+![master](https://github.com/alekcz/konserve-jdbc/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-jdbc/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-jdbc) 
 
 ## Usage
 
-[![Clojars Project](https://img.shields.io/clojars/v/alekcz/konserve-h2.svg)](https://clojars.org/alekcz/konserve-h2)
+[![Clojars Project](https://img.shields.io/clojars/v/alekcz/konserve-jdbc.svg)](https://clojars.org/alekcz/konserve-jdbc)
 
-`[alekcz/konserve-h2 "0.1.0-SNAPSHOT"]`
+`[alekcz/konserve-jdbc "0.1.0-SNAPSHOT"]`
 
 ```clojure
-(require '[konserve-h2.core :refer [new-your-store]]
+(require '[konserve-jdbc.core :refer [new-your-store]]
          '[clojure.core.async :refer [<!!] :as async]
          '[konserve.core :as k])
   

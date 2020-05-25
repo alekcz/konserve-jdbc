@@ -1,0 +1,25 @@
+version: '3.3'
+
+services:
+  mysql:
+    image: mysql:5.7
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: konserve
+      MYSQL_USER: konserve
+      MYSQL_PASSWORD: password
+    ports:
+      - 3306:3306
+
+  postgres:
+    image: postgres:12.3
+    restart: always
+    environment:
+      POSTGRES_DB: konserve
+      POSTGRES_USER: konserve
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+
+    
