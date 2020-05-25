@@ -1,4 +1,4 @@
-# konserve-template
+# konserve-h2
 
 An [H2](https://www.h2database.com/html/main.html) backend for [konserve](https://github.com/replikativ/konserve). 
 
