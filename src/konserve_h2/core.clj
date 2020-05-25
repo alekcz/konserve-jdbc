@@ -13,7 +13,7 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [org.h2.jdbc JdbcBlob]))
+            [org.h2.jdbc JdbcBlob JdbcConnection]))
 
 (set! *warn-on-reflection* 1)
 (def version 1)
@@ -31,35 +31,49 @@
   (let [res (first (j/query (:db conn) [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
     (not (nil? res)))) 
   
+(defn get-conn [db]
+  (->> db j/get-connection (j/add-connection db)))
+
+(defn close-conn [db]
+  (.close ^JdbcConnection (db :connection)))
+
 (defn get-it 
   [conn id]
-  (j/with-db-connection [db (:db conn)]
-    (let [res (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
-          ^JdbcBlob data (:data res)
-          ^JdbcBlob meta (:meta res)]
-      (if (and data meta)
-        [(strip-version (.getBytes meta 0 (.length meta)))
-         (strip-version (.getBytes data 0 (.length data)))]
-        [nil nil])))) 
+  (let [db (get-conn (:db conn))
+        res' (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
+        ^JdbcBlob data (:data res')
+        ^JdbcBlob meta (:meta res')
+        res (if (and data meta)
+              [(strip-version (.getBytes meta 0 (.length meta))) (strip-version (.getBytes data 0 (.length data)))]
+              [nil nil])]
+    (close-conn db)
+    res))  
 
 (defn get-it-only
   [conn id]
-  (j/with-db-connection [db (:db conn)]
-    (let [res (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
-          ^JdbcBlob data (:data res)]
-      (when data (strip-version (.getBytes data 0 (.length data)))))))
+  (let [db (get-conn (:db conn))
+        res' (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
+        ^JdbcBlob data (:data res')
+        res (when data (strip-version (.getBytes data 0 (.length data))))]
+    (close-conn db)
+    res))
 
 (defn get-meta 
   [conn id]
-  (j/with-db-connection [db (:db conn)]
-    (let [res (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
-          ^JdbcBlob meta (:meta res)]
-      (when meta (strip-version (.getBytes meta 0 (.length meta)))))))
+  (let [db (get-conn (:db conn))
+        res' (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
+        ^JdbcBlob meta (:meta res')
+        res (when meta (strip-version (.getBytes meta 0 (.length meta))))]
+    (close-conn db)
+    res))
 
 (defn update-it 
   [conn id data]
-  (let [p (j/prepare-statement (j/get-connection (:db conn)) (str "merge into " (:table conn) " key(id) values(?, ?, ?)"))]
-    (j/execute! (:db conn) [p id (add-version (first data)) (add-version (second data))])))
+  (let [db (get-conn (:db conn))
+        ^JdbcConnection raw-conn (db :connection)
+        p (j/prepare-statement raw-conn (str "merge into " (:table conn) " key(id) values(?, ?, ?)"))]
+    (j/execute! (:db conn) [p id (add-version (first data)) (add-version (second data))])
+    (close-conn db)))
 
 (defn delete-it 
   [conn id]
@@ -67,12 +81,11 @@
 
 (defn get-keys 
   [conn]
-  (j/with-db-connection [db (:db conn)]
-    (let [res (j/query db [(str "select id,meta from " (:table conn))])]
-      (doall 
-        (map 
-          #(strip-version (.getBytes ^JdbcBlob (:meta %) 0 (.length ^JdbcBlob (:meta %)))) 
-          res)))))
+  (let [db (get-conn (:db conn))
+        res' (j/query db [(str "select id,meta from " (:table conn))])
+        res (doall (map #(strip-version (.getBytes ^JdbcBlob (:meta %) 0 (.length ^JdbcBlob (:meta %)))) res'))]
+    (close-conn db)
+    res))
 
 
 (defn str-uuid 
@@ -207,8 +220,9 @@
 
 
 (defn new-h2-store
-  ([path & {:keys [table serializer read-handlers write-handlers]
+  ([path & {:keys [table store serializer read-handlers write-handlers]
                     :or {table "konserve"
+                         store "file"
                          serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
@@ -216,7 +230,7 @@
       (async/thread 
         (try
           (let [db {:classname   "org.h2.Driver" 
-                    :subprotocol "h2:file" 
+                    :subprotocol (str "h2:" store)
                     :subname (str "" path "/" table ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE")
                     :user     "sa"
                     :password ""}]
@@ -234,8 +248,7 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (j/with-db-connection [db (-> store :conn :db)]
-          (j/execute! db [(str "drop table " (-> store :conn :table))]))
+        (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))])
         (async/close! res-ch)
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          
     res-ch))

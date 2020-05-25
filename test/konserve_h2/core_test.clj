@@ -1,15 +1,32 @@
 (ns konserve-h2.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve-h2.core :refer [new-h2-store delete-store] :as khc]
             [hasch.core :as hasch]
             [malli.generator :as mg]
-            [clojure.java.jdbc :as j])
+            [clojure.java.jdbc :as j]
+            [clojure.java.io :as io])
   (:import  [clojure.lang ExceptionInfo]
-            [org.h2.jdbc JdbcBlob]))
+            [org.h2.jdbc JdbcBlob]
+            [java.io File]))
 
-(deftest get-nil-tests
+
+(defn delete-recursively [fname]
+  (let [func (fn [func f]
+               (when (.isDirectory ^File f)
+                 (doseq [^File f2 (.listFiles ^File f)]
+                   (func func f2)))
+               (io/delete-file f))]
+    (func func (io/file fname))))
+
+(defn my-test-fixture [f]
+  (f)
+  (delete-recursively "./temp"))
+
+(use-fixtures :once my-test-fixture)
+
+(deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
           store (<!! (new-h2-store "./temp/db" :table "nil"))]
@@ -20,7 +37,7 @@
       (<!! (k/bget store :foo (fn [res] 
                                 (is (nil? res))))))))
 
-(deftest write-value-tests
+(deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
           store (<!! (new-h2-store "./temp/db" :table "test_write"))]
@@ -33,7 +50,7 @@
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
       (delete-store store))))
 
-(deftest update-value-tests
+(deftest update-value-test
   (testing "Test updating values in the store"
     (let [_ (println "Updating values in the store")
           store (<!! (new-h2-store "./temp/db" :table "test_update"))]
@@ -43,7 +60,7 @@
       (is (= "baritone" (<!! (k/get-in store [:foo]))))
       (delete-store store))))
 
-(deftest exists-tests
+(deftest exists-test
   (testing "Test check for existing key in the store"
     (let [_ (println "Checking if keys exist")
           store (<!! (new-h2-store "./temp/db" :table "test_exists"))]
@@ -54,7 +71,7 @@
       (is (not (<!! (k/exists? store :foo))))
       (delete-store store))))
 
-(deftest binary-tests
+(deftest binary-test
   (testing "Test writing binary date"
     (let [_ (println "Reading and writing binary data")
           store (<!! (new-h2-store "./temp/db" :table "test_binary"))
@@ -77,7 +94,7 @@
       (is @cb2)
       (delete-store store))))
   
-(deftest key-tests
+(deftest key-test
   (testing "Test getting keys from the store"
     (let [_ (println "Getting keys from store")
           store (<!! (new-h2-store "./temp/db" :table "test_key"))]
@@ -162,7 +179,7 @@
                                            sevens)))))
       (delete-store store))))  
 
-(deftest version-tests
+(deftest version-test
   (testing "Test check for version being store with data"
     (let [_ (println "Check if version is stored")
           store (<!! (new-h2-store "./temp/db" :table "test_version"))
@@ -186,6 +203,7 @@
     (let [_ (println "Generating exceptions")
           store (<!! (new-h2-store "./temp/db" :table "test_exceptions"))
           corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
+      (is (= ExceptionInfo (type (<!! (new-h2-store "./temp/db" :table "")))))
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
