@@ -1,51 +1,33 @@
 # konserve-template
 
-An implementation guide and template of the [konserve kv-protocol (v0.6.0)](https://github.com/replikativ/konserve) on top of a clojure atom
-
-## About 
-This is a starter template it give basic guide lines on how to build a konserve backend.   
-The source code is heavily commented so go check it out.   
-You can also read the [implementation guidelines here](./doc/guidelines.md).   
-
-It's important to have a solid foundation when building a library. To help you keep your quality up you can run
-- `lein test` to test your code
-- `lein cloverage` to see the coverage of your tests. 
-
-A github action has also been provided to get you going.
-
-_(Eventually you'll replace this section with background around your konserve-backend)_
-
+An [H2](https://www.h2database.com/html/main.html) backend for [konserve](https://github.com/replikativ/konserve). 
 
 ## Status
 
-![master](https://github.com/alekcz/konserve-template/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-template/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-template) 
-
-## Prerequisites
-
-List any prerequisites for setting up you backend. 
+![master](https://github.com/alekcz/konserve-h2/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-h2/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-h2) 
 
 ## Usage
 
-_Link to the your lib on clojars_
+[![Clojars Project](https://img.shields.io/clojars/v/alekcz/konserve-h2.svg)](http://clojars.org/alekcz/konserve-h2)
 
-`[your/store "x.y.z"]`
+`[alekcz/konserve-h2 "0.1.0-SNAPSHOT"]`
 
 ```clojure
-(require '[konserve-yourstore.core :refer [new-your-store]]
+(require '[konserve-h2.core :refer [new-your-store]]
          '[clojure.core.async :refer [<!!] :as async]
          '[konserve.core :as k])
   
-  (def your-store (<!! (new-your-store connection-uri :other-config "info" :and-more :yay)))
+  (def h2-store (<!! (new-h2-store "./temp/db" :table "konserve")))
 
-  (<!! (k/exists? your-store  "cecilia"))
-  (<!! (k/get-in your-store ["cecilia"]))
-  (<!! (k/assoc-in your-store ["cecilia"] 28))
-  (<!! (k/update-in your-store ["cecilia"] inc))
-  (<!! (k/get-in your-store ["cecilia"]))
+  (<!! (k/exists? h2-store  "cecilia"))
+  (<!! (k/get-in h2-store ["cecilia"]))
+  (<!! (k/assoc-in h2-store ["cecilia"] 28))
+  (<!! (k/update-in h2-store ["cecilia"] inc))
+  (<!! (k/get-in h2-store ["cecilia"]))
 
   (defrecord Test [a])
-  (<!! (k/assoc-in your-store ["agatha"] (Test. 35)))
-  (<!! (k/get-in your-store ["agatha"]))
+  (<!! (k/assoc-in h2-store ["agatha"] (Test. 35)))
+  (<!! (k/get-in h2-store ["agatha"]))
 ```
 
 ## License
