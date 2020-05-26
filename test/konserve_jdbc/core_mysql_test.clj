@@ -2,7 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store] :as khc]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store] :as kjc]
             [hasch.core :as hasch]
             [malli.generator :as mg]
             [clojure.java.jdbc :as j])
@@ -177,12 +177,12 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte khc/version) 
+      (is (= (byte kjc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       meta (:meta res)]
                   (-> meta vec first )))))
-      (is (= (byte khc/version) 
+      (is (= (byte kjc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       data (:data res)]

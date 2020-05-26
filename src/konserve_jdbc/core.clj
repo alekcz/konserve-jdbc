@@ -17,7 +17,7 @@
             [org.h2.jdbc JdbcBlob]))
 
 (set! *warn-on-reflection* 1)
-(def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "pgsql" "redshift" "sqlite" "sqlserver"])
+(def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
 (def version 1)
 
 (defn add-version [bytes]
@@ -257,9 +257,6 @@
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
             (case dbtype
 
-              "pgsql" 
-                (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
-              
               "postgresql" 
                 (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
             

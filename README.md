@@ -1,6 +1,6 @@
 # konserve-jdbc
 
-An [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://github.com/replikativ/konserve). 
+A [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://github.com/replikativ/konserve). 
 
 ## Status
 
