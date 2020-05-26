@@ -3,7 +3,6 @@
   (:require [clojure.core.async :as async]
             [konserve.serializers :as ser]
             [hasch.core :as hasch]
-            [clojure.string :as str]
             [clojure.java.jdbc :as j]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
@@ -14,9 +13,8 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [java.sql Connection Blob]
-            [org.h2.jdbc JdbcBlob]
-            ))
+            [java.sql Connection]
+            [org.h2.jdbc JdbcBlob]))
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "pgsql" "redshift" "sqlite" "sqlserver"])
