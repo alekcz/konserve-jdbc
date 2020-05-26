@@ -1,35 +1,26 @@
-(ns konserve-h2.core-test
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+(ns konserve-jdbc.core-postgres-test
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve-h2.core :refer [new-h2-store delete-store] :as khc]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store] :as khc]
             [hasch.core :as hasch]
             [malli.generator :as mg]
-            [clojure.java.jdbc :as j]
-            [clojure.java.io :as io])
-  (:import  [clojure.lang ExceptionInfo]
-            [org.h2.jdbc JdbcBlob]
-            [java.io File]))
+            [clojure.java.jdbc :as j])
+  (:import  [clojure.lang ExceptionInfo]))
 
-
-(defn delete-recursively [fname]
-  (let [func (fn [func f]
-               (when (.isDirectory ^File f)
-                 (doseq [^File f2 (.listFiles ^File f)]
-                   (func func f2)))
-               (io/delete-file f))]
-    (func func (io/file fname))))
-
-(defn my-test-fixture [f]
-  (f)
-  (delete-recursively "./temp"))
-
-(use-fixtures :once my-test-fixture)
+(def conn 
+  { :dbtype "postgresql"
+    :dbname "konserve"
+    :host "localhost"
+    :user "konserve"
+    :password "password"
+    ;:connection-uri (str "postgresql://konserve:password@localhost:5432/" table)
+   })
 
 (deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-h2-store "./temp/db" :table "nil"))]
+          store (<!! (new-jdbc-store conn :table "nil"))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
@@ -40,7 +31,7 @@
 (deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-h2-store "./temp/db" :table "test_write"))]
+          store (<!! (new-jdbc-store conn :table "test_write"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))
@@ -53,7 +44,7 @@
 (deftest update-value-test
   (testing "Test updating values in the store"
     (let [_ (println "Updating values in the store")
-          store (<!! (new-h2-store "./temp/db" :table "test_update"))]
+          store (<!! (new-jdbc-store conn :table "test_update"))]
       (<!! (k/assoc store :foo :baritone))
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
@@ -63,7 +54,7 @@
 (deftest exists-test
   (testing "Test check for existing key in the store"
     (let [_ (println "Checking if keys exist")
-          store (<!! (new-h2-store "./temp/db" :table "test_exists"))]
+          store (<!! (new-jdbc-store conn :table "test_exists"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :baritone))
       (is  (<!! (k/exists? store :foo)))
@@ -74,7 +65,7 @@
 (deftest binary-test
   (testing "Test writing binary date"
     (let [_ (println "Reading and writing binary data")
-          store (<!! (new-h2-store "./temp/db" :table "test_binary"))
+          store (<!! (new-jdbc-store conn :table "test_binary"))
           cb (atom false)
           cb2 (atom false)]
       (is (not (<!! (k/exists? store :binbar))))
@@ -97,7 +88,7 @@
 (deftest key-test
   (testing "Test getting keys from the store"
     (let [_ (println "Getting keys from store")
-          store (<!! (new-h2-store "./temp/db" :table "test_key"))]
+          store (<!! (new-jdbc-store conn :table "test_key"))]
       (is (= #{} (<!! (async/into #{} (k/keys store)))))
       (<!! (k/assoc store :baz 20))
       (<!! (k/assoc store :binbar 20))
@@ -107,7 +98,7 @@
 (deftest append-test
   (testing "Test the append store functionality."
     (let [_ (println "Appending to store")
-          store (<!! (new-h2-store "./temp/db" :table "test_append"))]
+          store (<!! (new-jdbc-store conn :table "test_append"))]
       (<!! (k/append store :foo {:bar 42}))
       (<!! (k/append store :foo {:bar 43}))
       (is (= (<!! (k/log store :foo))
@@ -135,7 +126,7 @@
 (deftest realistic-test
   (testing "Realistic data test."
     (let [_ (println "Entering realistic data")
-          store (<!! (new-h2-store "./temp/db" :table "test_realistic"))
+          store (<!! (new-jdbc-store conn :table "test_realistic"))
           home (mg/generate home {:size 20 :seed 2})
           address (:address home)
           addressless (dissoc home :address)
@@ -165,7 +156,7 @@
 (deftest bulk-test
   (testing "Bulk data test."
     (let [_ (println "Writing bulk data")
-          store (<!! (new-h2-store "./temp/db" :table "test_bulk"))
+          store (<!! (new-jdbc-store conn :table "test_bulk"))
           string20MB (apply str (vec (range 3000000)))
           range2MB 2097152
           sevens (repeat range2MB 7)]
@@ -182,28 +173,28 @@
 (deftest version-test
   (testing "Test check for version being store with data"
     (let [_ (println "Check if version is stored")
-          store (<!! (new-h2-store "./temp/db" :table "test_version"))
+          store (<!! (new-jdbc-store conn :table "test_version"))
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
       (is (= (byte khc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^JdbcBlob meta (:meta res)]
-                  (-> (.getBytes meta 0 (.length meta)) vec first )))))
+                      meta (:meta res)]
+                  (-> meta vec first )))))
       (is (= (byte khc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^JdbcBlob data (:data res)]
-                  (-> (.getBytes data 0 (.length data)) vec first )))))           
+                      data (:data res)]
+                  (-> data vec first )))))           
       (delete-store store))))
 
 (deftest exceptions-test
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
-          store (<!! (new-h2-store "./temp/db" :table "test_exceptions"))
+          store (<!! (new-jdbc-store conn :table "test_exceptions"))
           corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
-      (is (= ExceptionInfo (type (<!! (new-h2-store "./temp/db" :table "")))))
+      (is (= ExceptionInfo (type (<!! (new-jdbc-store "-")))))
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))

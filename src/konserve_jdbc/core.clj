@@ -1,4 +1,4 @@
-(ns konserve-h2.core
+(ns konserve-jdbc.core
   "Address globally aggregated immutable key-value conn(s)."
   (:require [clojure.core.async :as async]
             [konserve.serializers :as ser]
@@ -13,18 +13,27 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [org.h2.jdbc JdbcBlob JdbcConnection]))
+            [java.sql Connection]
+            [org.h2.jdbc JdbcBlob]))
 
 (set! *warn-on-reflection* 1)
+(def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "pgsql" "redshift" "sqlite" "sqlserver"])
 (def version 1)
 
 (defn add-version [bytes]
   (when (seq bytes) 
     (byte-array (into [] (concat [(byte version)] (vec bytes))))))
 
-(defn strip-version [bytes]
-  (when (seq bytes) 
-    (byte-array (rest (vec bytes)))))
+(defn extract-bytes [obj]
+  (cond
+    (= org.h2.jdbc.JdbcBlob (type obj))
+      (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
+    :else obj))
+
+(defn strip-version [bytes-or-blob]
+  (when (some? bytes-or-blob) 
+    (let [bytes (extract-bytes bytes-or-blob)]
+      (byte-array (rest (vec bytes))))))
 
 (defn it-exists? 
   [conn id]
@@ -35,16 +44,16 @@
   (->> db j/get-connection (j/add-connection db)))
 
 (defn close-conn [db]
-  (.close ^JdbcConnection (db :connection)))
+  (.close ^Connection (db :connection)))
 
 (defn get-it 
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
-        ^JdbcBlob data (:data res')
-        ^JdbcBlob meta (:meta res')
-        res (if (and data meta)
-              [(strip-version (.getBytes meta 0 (.length meta))) (strip-version (.getBytes data 0 (.length data)))]
+        data (:data res')
+        meta (:meta res')
+        res (if (and meta data)
+              [(strip-version meta) (strip-version data)]
               [nil nil])]
     (close-conn db)
     res))  
@@ -53,8 +62,8 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
-        ^JdbcBlob data (:data res')
-        res (when data (strip-version (.getBytes data 0 (.length data))))]
+        data (:data res')
+        res (when data (strip-version data))]
     (close-conn db)
     res))
 
@@ -62,17 +71,27 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
-        ^JdbcBlob meta (:meta res')
-        res (when meta (strip-version (.getBytes meta 0 (.length meta))))]
+        meta (:meta res')
+        res (when meta (strip-version meta))]
     (close-conn db)
     res))
 
 (defn update-it 
   [conn id data]
   (let [db (get-conn (:db conn))
-        ^JdbcConnection raw-conn (db :connection)
-        p (j/prepare-statement raw-conn (str "merge into " (:table conn) " key(id) values(?, ?, ?)"))]
-    (j/execute! (:db conn) [p id (add-version (first data)) (add-version (second data))])
+        ^Connection raw-conn (db :connection)
+        p (j/prepare-statement raw-conn (str "update " (:table conn) " set meta = ?, data = ? where id = ?"))]
+    (j/execute! (:db conn) 
+      [p (add-version (first data)) (add-version (second data)) id])
+    (close-conn db)))
+
+(defn insert-it 
+  [conn id data]
+  (let [db (get-conn (:db conn))
+        ^Connection raw-conn (db :connection)
+        p (j/prepare-statement raw-conn (str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)"))]
+    (j/execute! (:db conn) 
+      [p id (add-version (first data)) (add-version (second data))])
     (close-conn db)))
 
 (defn delete-it 
@@ -83,7 +102,7 @@
   [conn]
   (let [db (get-conn (:db conn))
         res' (j/query db [(str "select id,meta from " (:table conn))])
-        res (doall (map #(strip-version (.getBytes ^JdbcBlob (:meta %) 0 (.length ^JdbcBlob (:meta %)))) res'))]
+        res (doall (map #(strip-version (:meta %)) res'))]
     (close-conn db)
     res))
 
@@ -94,6 +113,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
+  ;(.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -101,7 +121,7 @@
   { :input-stream  (ByteArrayInputStream. bytes) 
     :size (count bytes)})
 
-(defrecord H2Store [conn serializer read-handlers write-handlers locks]
+(defrecord JDBCStore [conn serializer read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
   (-exists? 
     [this key] 
@@ -155,7 +175,9 @@
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
             (when nmeta (-serialize serializer mbaos write-handlers nmeta))
             (when nval (-serialize serializer vbaos write-handlers nval))    
-            (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+            (if (first old-val)
+              (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
@@ -195,7 +217,9 @@
                 new-meta (meta-up-fn old-meta) 
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
             (when new-meta (-serialize serializer mbaos write-handlers new-meta))
-            (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
+            (if old-meta
+              (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
+              (insert-it conn (str-uuid key) [(.toByteArray mbaos) input]))
             (async/put! res-ch [old-val input]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
         res-ch))
@@ -219,28 +243,34 @@
         res-ch)))
 
 
-(defn new-h2-store
-  ([path & {:keys [table store serializer read-handlers write-handlers]
+(defn new-jdbc-store
+  ([db & {:keys [table serializer read-handlers write-handlers]
                     :or {table "konserve"
-                         store "file"
                          serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)]                      
       (async/thread 
         (try
-          (let [db {:classname   "org.h2.Driver" 
-                    :subprotocol (str "h2:" store)
-                    :subname (str "" path "/" table ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE")
-                    :user     "sa"
-                    :password ""}]
-            (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta blob, data blob)")])
+          (let [dbtype (or (:dbtype db) (:subprotocol db))]
+            (when-not dbtype 
+              (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
+            (case dbtype
+
+              "pgsql" 
+                (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+              
+              "postgresql" 
+                (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+            
+              (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")]))
+            
             (async/put! res-ch
-              (map->H2Store { :conn {:db db :table (str "`" table "`")}
-                              :read-handlers read-handlers
-                              :write-handlers write-handlers
-                              :serializer serializer
-                              :locks (atom {})})))
+              (map->JDBCStore { :conn {:db db :table table}
+                                :read-handlers read-handlers
+                                :write-handlers write-handlers
+                                :serializer serializer
+                                :locks (atom {})})))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
       res-ch)))
 
