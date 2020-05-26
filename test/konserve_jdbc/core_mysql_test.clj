@@ -171,23 +171,80 @@
       (delete-store store))))  
 
 (deftest version-test
-  (testing "Test check for version being store with data"
-    (let [_ (println "Check if version is stored")
+  (testing "Test check for store version being store with data"
+    (let [_ (println "Checking if store version is stored")
           store (<!! (new-jdbc-store conn :table "test_version"))
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/version) 
+      (is (= (byte kjc/store-version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       meta (:meta res)]
-                  (-> meta vec first )))))
-      (is (= (byte kjc/version) 
+                  (-> meta vec (nth 0) )))))
+      (is (= (byte kjc/store-version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       data (:data res)]
-                  (-> data vec first )))))           
+                  (-> data vec (nth 0) )))))           
       (delete-store store))))
+
+(deftest serializer-test
+  (testing "Test check for serilizer type being store with data"
+    (let [_ (println "Checking if serilizer type is stored")
+          store (<!! (new-jdbc-store conn :table "test_serializer"))
+          id (str (hasch/uuid :foo))]
+      (<!! (k/assoc store :foo :bar))
+      (is (= :bar (<!! (k/get store :foo))))
+      (is (= (byte kjc/serializer) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
+                      meta (:meta res)]
+                  (-> meta vec (nth 1) )))))
+      (is (= (byte kjc/serializer) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
+                      data (:data res)]
+                  (-> data vec (nth 1) )))))           
+      (delete-store store))))
+
+(deftest compressor-test
+  (testing "Test check for compressor type being store with data"
+    (let [_ (println "Checking if compressor type is stored")
+          store (<!! (new-jdbc-store conn :table "test_compressor"))
+          id (str (hasch/uuid :foo))]
+      (<!! (k/assoc store :foo :bar))
+      (is (= :bar (<!! (k/get store :foo))))
+      (is (= (byte kjc/compressor) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
+                      meta (:meta res)]
+                  (-> meta vec (nth 2) )))))
+      (is (= (byte kjc/compressor) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
+                      data (:data res)]
+                  (-> data vec (nth 2) )))))           
+      (delete-store store))))
+
+(deftest encryptor-test
+  (testing "Test check for encryptor type being store with data"
+    (let [_ (println "Checking if encryptor type is stored")
+          store (<!! (new-jdbc-store conn :table "test_encryptor"))
+          id (str (hasch/uuid :foo))]
+      (<!! (k/assoc store :foo :bar))
+      (is (= :bar (<!! (k/get store :foo))))
+      (is (= (byte kjc/encryptor) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
+                      meta (:meta res)]
+                  (-> meta vec (nth 3) )))))
+      (is (= (byte kjc/encryptor) 
+             (j/with-db-connection [db (-> store :conn :db)]
+                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
+                      data (:data res)]
+                  (-> data vec (nth 3) )))))           
+      (delete-store store))))        
 
 (deftest exceptions-test
   (testing "Test exception handling"

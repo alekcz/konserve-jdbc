@@ -18,11 +18,16 @@
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
-(def version 1)
+(def store-version 1)
+(def serializer 1)
+(def compressor 0)
+(def encryptor 0)
 
 (defn add-version [bytes]
   (when (seq bytes) 
-    (byte-array (into [] (concat [(byte version)] (vec bytes))))))
+    (byte-array (into [] (concat 
+                            [(byte store-version) (byte serializer) (byte compressor) (byte encryptor)] 
+                            (vec bytes))))))
 
 (defn extract-bytes [obj]
   (cond
@@ -33,7 +38,7 @@
 (defn strip-version [bytes-or-blob]
   (when (some? bytes-or-blob) 
     (let [bytes (extract-bytes bytes-or-blob)]
-      (byte-array (rest (vec bytes))))))
+      (byte-array (->> bytes vec (split-at 4) second)))))
 
 (defn it-exists? 
   [conn id]

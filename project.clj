@@ -1,5 +1,5 @@
 (defproject alekcz/konserve-jdbc "0.1.0-SNAPSHOT"
-  :description "An Generic JDBC backend for konserve."
+  :description "A generic JDBC backend for konserve."
   :url "https://github.com/alekcz/konserve-jdbc"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
             :url "https://www.eclipse.org/legal/epl-2.0/"}
@@ -12,5 +12,5 @@
                  [org.postgresql/postgresql "42.2.12"]
                  [io.replikativ/konserve "0.6.0-20200512.093105-1"]]
   :repl-options {:init-ns konserve-jdbc.core}
-  :plugins [[lein-cloverage "1.1.3-SNAPSHOT"]]
-  :profiles { :dev {:dependencies [[metosin/malli "0.0.1-SNAPSHOT"]]}})
+  :plugins [[lein-cloverage "1.1.2"]]
+  :profiles { :dev {:dependencies [[metosin/malli "0.0.1-20200404.091302-14"]]}})
