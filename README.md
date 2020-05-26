@@ -13,21 +13,41 @@ An [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://g
 `[alekcz/konserve-jdbc "0.1.0-SNAPSHOT"]`
 
 ```clojure
-(require '[konserve-jdbc.core :refer [new-your-store]]
+(require '[konserve-jdbc.core :refer [new-jdbc-store]]
          '[clojure.core.async :refer [<!!] :as async]
          '[konserve.core :as k])
   
-  (def h2-store (<!! (new-h2-store "./temp/db" :table "konserve")))
+  (def h2 {   :classname "org.h2.Driver"
+              :subprotocol "h2:file"
+              :subname "./temp/db"
+              :user "sa"
+              :password ""})
+  
+  (def mysql { :dbtype "mysql"
+               :dbname "konserve"
+               :host "localhost"
+               :user "konserve"
+               :password "password"})
 
-  (<!! (k/exists? h2-store  "cecilia"))
-  (<!! (k/get-in h2-store ["cecilia"]))
-  (<!! (k/assoc-in h2-store ["cecilia"] 28))
-  (<!! (k/update-in h2-store ["cecilia"] inc))
-  (<!! (k/get-in h2-store ["cecilia"]))
+  (def pg { :dbtype "postgresql"
+            :dbname "konserve"
+            :host "localhost"
+            :user "konserve"
+            :password "password"})
+
+  (def h2-store (<!! (new-jdbc-store h2 :table "konserve")))
+  (def mysql-store (<!! (new-jdbc-store mysql :table "konserve")))
+  (def pg-store (<!! (new-jdbc-store pg :table "konserve")))
+
+  (<!! (k/exists? pg-store  "cecilia"))
+  (<!! (k/get-in pg-store ["cecilia"]))
+  (<!! (k/assoc-in pg-store ["cecilia"] 28))
+  (<!! (k/update-in pg-store ["cecilia"] inc))
+  (<!! (k/get-in pg-store ["cecilia"]))
 
   (defrecord Test [a])
-  (<!! (k/assoc-in h2-store ["agatha"] (Test. 35)))
-  (<!! (k/get-in h2-store ["agatha"]))
+  (<!! (k/assoc-in pg-store ["agatha"] (Test. 35)))
+  (<!! (k/get-in pg-store ["agatha"]))
 ```
 
 ## License
