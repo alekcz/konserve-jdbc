@@ -6,8 +6,7 @@
             [hasch.core :as hasch]
             [malli.generator :as mg]
             [clojure.java.jdbc :as j])
-  (:import  [clojure.lang ExceptionInfo]
-            [java.sql Blob]))
+  (:import  [clojure.lang ExceptionInfo]))
 
 (def conn 
   { :dbtype "postgresql"
@@ -181,13 +180,13 @@
       (is (= (byte khc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob meta (:meta res)]
-                  (-> (.getBytes meta 0 (.length meta)) vec first )))))
+                      meta (:meta res)]
+                  (-> meta vec first )))))
       (is (= (byte khc/version) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob data (:data res)]
-                  (-> (.getBytes data 0 (.length data)) vec first )))))           
+                      data (:data res)]
+                  (-> data vec first )))))           
       (delete-store store))))
 
 (deftest exceptions-test

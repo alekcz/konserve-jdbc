@@ -17,6 +17,7 @@
             [java.sql Connection]))
 
 (set! *warn-on-reflection* 1)
+(def dbtypes ["derby" "h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "pgsql" "redshift" "sqlite" "sqlserver"])
 (def version 1)
 
 (defn add-version [bytes]
@@ -244,13 +245,25 @@
     (let [res-ch (async/chan 1)]                      
       (async/thread 
         (try
-          (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")])
-          (async/put! res-ch
-            (map->JDBCStore { :conn {:db db :table (str "`" table "`")}
-                              :read-handlers read-handlers
-                              :write-handlers write-handlers
-                              :serializer serializer
-                              :locks (atom {})}))
+          (let [dbtype (:dbtype db)]
+            (when-not dbtype 
+              (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
+            (case dbtype
+              
+              "pgsql" 
+                (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+              
+              "postgresql" 
+                (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+            
+              (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")]))
+            
+            (async/put! res-ch
+              (map->JDBCStore { :conn {:db db :table table}
+                                :read-handlers read-handlers
+                                :write-handlers write-handlers
+                                :serializer serializer
+                                :locks (atom {})})))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
       res-ch)))
 
