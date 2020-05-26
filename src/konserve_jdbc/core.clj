@@ -14,19 +14,28 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [java.sql Connection]))
+            [java.sql Connection Blob]
+            [org.h2.jdbc JdbcBlob]
+            ))
 
 (set! *warn-on-reflection* 1)
-(def dbtypes ["derby" "h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "pgsql" "redshift" "sqlite" "sqlserver"])
+(def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "pgsql" "redshift" "sqlite" "sqlserver"])
 (def version 1)
 
 (defn add-version [bytes]
   (when (seq bytes) 
     (byte-array (into [] (concat [(byte version)] (vec bytes))))))
 
-(defn strip-version [bytes]
-  (when (seq bytes) 
-    (byte-array (rest (vec bytes)))))
+(defn extract-bytes [obj]
+  (cond
+    (= org.h2.jdbc.JdbcBlob (type obj))
+      (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
+    :else obj))
+
+(defn strip-version [bytes-or-blob]
+  (when (some? bytes-or-blob) 
+    (let [bytes (extract-bytes bytes-or-blob)]
+      (byte-array (rest (vec bytes))))))
 
 (defn it-exists? 
   [conn id]
@@ -245,11 +254,11 @@
     (let [res-ch (async/chan 1)]                      
       (async/thread 
         (try
-          (let [dbtype (:dbtype db)]
+          (let [dbtype (or (:dbtype db) (:subprotocol db))]
             (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
             (case dbtype
-              
+
               "pgsql" 
                 (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
               

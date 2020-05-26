@@ -15,7 +15,6 @@
     :host "localhost"
     :user "konserve"
     :password "password"
-    ;:connection-uri (str "postgresql://konserve:password@localhost:5432/" table)
    })
 
 (deftest get-nil-test

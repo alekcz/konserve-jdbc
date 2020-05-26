@@ -17,7 +17,7 @@
                (when (.isDirectory ^File f)
                  (doseq [^File f2 (.listFiles ^File f)]
                    (func func f2)))
-               (io/delete-file f))]
+               (try (io/delete-file f) (catch Exception _ nil)))]
     (func func (io/file fname))))
 
 (defn my-test-fixture [f]
@@ -26,10 +26,19 @@
 
 (use-fixtures :once my-test-fixture)
 
+(def conn 
+  { :dbtype "h2:file"
+    :classname "org.h2.Driver"
+    :subprotocol "h2:file"
+    :subname "./temp/db"
+    :user "sa"
+    :password ""
+   })
+
 (deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-jdbc-store "./temp/db" :table "nil"))]
+          store (<!! (new-jdbc-store conn :table "nil"))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
@@ -40,7 +49,7 @@
 (deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_write"))]
+          store (<!! (new-jdbc-store conn :table "test_write"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))
@@ -53,7 +62,7 @@
 (deftest update-value-test
   (testing "Test updating values in the store"
     (let [_ (println "Updating values in the store")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_update"))]
+          store (<!! (new-jdbc-store conn :table "test_update"))]
       (<!! (k/assoc store :foo :baritone))
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
@@ -63,7 +72,7 @@
 (deftest exists-test
   (testing "Test check for existing key in the store"
     (let [_ (println "Checking if keys exist")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_exists"))]
+          store (<!! (new-jdbc-store conn :table "test_exists"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :baritone))
       (is  (<!! (k/exists? store :foo)))
@@ -74,7 +83,7 @@
 (deftest binary-test
   (testing "Test writing binary date"
     (let [_ (println "Reading and writing binary data")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_binary"))
+          store (<!! (new-jdbc-store conn :table "test_binary"))
           cb (atom false)
           cb2 (atom false)]
       (is (not (<!! (k/exists? store :binbar))))
@@ -97,7 +106,7 @@
 (deftest key-test
   (testing "Test getting keys from the store"
     (let [_ (println "Getting keys from store")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_key"))]
+          store (<!! (new-jdbc-store conn :table "test_key"))]
       (is (= #{} (<!! (async/into #{} (k/keys store)))))
       (<!! (k/assoc store :baz 20))
       (<!! (k/assoc store :binbar 20))
@@ -107,7 +116,7 @@
 (deftest append-test
   (testing "Test the append store functionality."
     (let [_ (println "Appending to store")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_append"))]
+          store (<!! (new-jdbc-store conn :table "test_append"))]
       (<!! (k/append store :foo {:bar 42}))
       (<!! (k/append store :foo {:bar 43}))
       (is (= (<!! (k/log store :foo))
@@ -135,7 +144,7 @@
 (deftest realistic-test
   (testing "Realistic data test."
     (let [_ (println "Entering realistic data")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_realistic"))
+          store (<!! (new-jdbc-store conn :table "test_realistic"))
           home (mg/generate home {:size 20 :seed 2})
           address (:address home)
           addressless (dissoc home :address)
@@ -165,7 +174,7 @@
 (deftest bulk-test
   (testing "Bulk data test."
     (let [_ (println "Writing bulk data")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_bulk"))
+          store (<!! (new-jdbc-store conn :table "test_bulk"))
           string20MB (apply str (vec (range 3000000)))
           range2MB 2097152
           sevens (repeat range2MB 7)]
@@ -182,7 +191,7 @@
 (deftest version-test
   (testing "Test check for version being store with data"
     (let [_ (println "Check if version is stored")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_version"))
+          store (<!! (new-jdbc-store conn :table "test_version"))
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
@@ -201,9 +210,9 @@
 (deftest exceptions-test
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
-          store (<!! (new-jdbc-store "./temp/db" :table "test_exceptions"))
+          store (<!! (new-jdbc-store conn :table "test_exceptions"))
           corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
-      (is (= ExceptionInfo (type (<!! (new-jdbc-store "./temp/db" :table "")))))
+      (is (= ExceptionInfo (type (<!! (new-jdbc-store conn :table "")))))
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
