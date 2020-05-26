@@ -14,8 +14,7 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [java.sql Connection Blob]
-            [java.net URI]))
+            [java.sql Connection]))
 
 (set! *warn-on-reflection* 1)
 (def version 1)
@@ -43,10 +42,10 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
-        ^Blob data (:data res')
-        ^Blob meta (:meta res')
-        res (if (and data meta)
-              [(strip-version (.getBytes meta 0 (.length meta))) (strip-version (.getBytes data 0 (.length data)))]
+        data (:data res')
+        meta (:meta res')
+        res (if (and meta data)
+              [(strip-version meta) (strip-version data)]
               [nil nil])]
     (close-conn db)
     res))  
@@ -55,8 +54,8 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
-        ^Blob data (:data res')
-        res (when data (strip-version (.getBytes data 0 (.length data))))]
+        data (:data res')
+        res (when data (strip-version data))]
     (close-conn db)
     res))
 
@@ -64,28 +63,27 @@
   [conn id]
   (let [db (get-conn (:db conn))
         res' (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
-        ^Blob meta (:meta res')
-        res (when meta (strip-version (.getBytes meta 0 (.length meta))))]
+        meta (:meta res')
+        res (when meta (strip-version meta))]
     (close-conn db)
     res))
 
 (defn update-it 
   [conn id data]
-  ;; INSERT INTO tablename (a,b,c) VALUES (1,2,3)
-  ;; ON DUPLICATE KEY UPDATE c=c+1;
-
-  ;; INSERT INTO tablename (a, b, c) values (1, 2, 10)
-  ;; ON CONFLICT (a) DO UPDATE SET c = tablename.c + 1;
   (let [db (get-conn (:db conn))
         ^Connection raw-conn (db :connection)
-        p (j/prepare-statement 
-            raw-conn
-            (str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?) on conflict (id) do update set meta = ?, data = ?" ))]
+        p (j/prepare-statement raw-conn (str "update " (:table conn) " set meta = ?, data = ? where id = ?"))]
     (j/execute! (:db conn) 
-      [p id (add-version (first data)) 
-            (add-version (second data)) 
-            (add-version (first data)) 
-            (add-version (second data))])
+      [p (add-version (first data)) (add-version (second data)) id])
+    (close-conn db)))
+
+(defn insert-it 
+  [conn id data]
+  (let [db (get-conn (:db conn))
+        ^Connection raw-conn (db :connection)
+        p (j/prepare-statement raw-conn (str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)"))]
+    (j/execute! (:db conn) 
+      [p id (add-version (first data)) (add-version (second data))])
     (close-conn db)))
 
 (defn delete-it 
@@ -96,7 +94,7 @@
   [conn]
   (let [db (get-conn (:db conn))
         res' (j/query db [(str "select id,meta from " (:table conn))])
-        res (doall (map #(strip-version (.getBytes ^Blob (:meta %) 0 (.length ^Blob (:meta %)))) res'))]
+        res (doall (map #(strip-version (:meta %)) res'))]
     (close-conn db)
     res))
 
@@ -107,7 +105,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
-  (.printStackTrace e)
+  ;(.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -169,7 +167,9 @@
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
             (when nmeta (-serialize serializer mbaos write-handlers nmeta))
             (when nval (-serialize serializer vbaos write-handlers nval))    
-            (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+            (if (first old-val)
+              (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
@@ -209,7 +209,9 @@
                 new-meta (meta-up-fn old-meta) 
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
             (when new-meta (-serialize serializer mbaos write-handlers new-meta))
-            (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
+            (if old-meta
+              (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
+              (insert-it conn (str-uuid key) [(.toByteArray mbaos) input]))
             (async/put! res-ch [old-val input]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
         res-ch))
@@ -242,7 +244,7 @@
     (let [res-ch (async/chan 1)]                      
       (async/thread 
         (try
-          (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta blob, data blob)")])
+          (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")])
           (async/put! res-ch
             (map->JDBCStore { :conn {:db db :table (str "`" table "`")}
                               :read-handlers read-handlers
@@ -256,7 +258,6 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (println (-> store :conn :db))
         (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))])
         (async/close! res-ch)
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          
