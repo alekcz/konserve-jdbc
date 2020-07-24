@@ -18,6 +18,5 @@ jobs:
       run: |
         docker-compose up -d
         lein cloverage --codecov
-        bash <(curl -s https://codecov.io/bash)
         docker-compose down
 
