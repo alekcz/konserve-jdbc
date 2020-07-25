@@ -4,6 +4,7 @@
             [konserve.serializers :as ser]
             [hasch.core :as hasch]
             [clojure.java.jdbc :as j]
+            [next.jdbc :as jdbc]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
                                         -update-in -assoc-in -dissoc
@@ -42,7 +43,7 @@
 
 (defn it-exists? 
   [conn id]
-  (let [res (first (j/query (:db conn) [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
+  (let [res (first (jdbc/execute! (:db conn) [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
     (not (nil? res)))) 
   
 (defn get-conn [db]
