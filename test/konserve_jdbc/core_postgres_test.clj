@@ -57,7 +57,8 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
-      (delete-store store))))
+      ;(delete-store store)
+      )))
 
 (deftest update-value-test
   (testing "Test updating values in the store"
@@ -268,7 +269,7 @@
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
           store (<!! (new-jdbc-store conn :table "test_exceptions"))
-          corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
+          corrupt (update-in store [:conn] #(dissoc % :db :ds))] ; let's corrupt our store
       (is (= ExceptionInfo (type (<!! (new-jdbc-store "-")))))
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))

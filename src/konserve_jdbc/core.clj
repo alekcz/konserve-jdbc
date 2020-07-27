@@ -5,6 +5,8 @@
             [hasch.core :as hasch]
             [clojure.java.jdbc :as j]
             [next.jdbc :as jdbc]
+            [next.jdbc.prepare :as p]
+            [next.jdbc.result-set :as rs]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
                                         -update-in -assoc-in -dissoc
@@ -43,7 +45,7 @@
 
 (defn it-exists? 
   [conn id]
-  (let [res (first (jdbc/execute! (:db conn) [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
+  (let [res (first (jdbc/execute! (:ds conn) [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
     (not (nil? res)))) 
   
 (defn get-conn [db]
@@ -54,62 +56,54 @@
 
 (defn get-it 
   [conn id]
-  (let [db (get-conn (:db conn))
-        res' (first (j/query db [(str "select * from " (:table conn) " where id = '" id "'")]))
+  (let [res' (first (jdbc/execute! (:ds conn) [(str "select * from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')
         meta (:meta res')
         res (if (and meta data)
               [(strip-version meta) (strip-version data)]
               [nil nil])]
-    (close-conn db)
     res))  
 
 (defn get-it-only
   [conn id]
-  (let [db (get-conn (:db conn))
-        res' (first (j/query db [(str "select id,data from " (:table conn) " where id = '" id "'")]))
+  (let [res' (first (jdbc/execute! (:ds conn) [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')
         res (when data (strip-version data))]
-    (close-conn db)
     res))
 
 (defn get-meta 
   [conn id]
-  (let [db (get-conn (:db conn))
-        res' (first (j/query db [(str "select id,meta from " (:table conn) " where id = '" id "'")]))
+  (let [res' (first (jdbc/execute! (:ds conn) [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         meta (:meta res')
         res (when meta (strip-version meta))]
-    (close-conn db)
     res))
 
 (defn update-it 
   [conn id data]
-  (let [db (get-conn (:db conn))
-        ^Connection raw-conn (db :connection)
-        p (j/prepare-statement raw-conn (str "update " (:table conn) " set meta = ?, data = ? where id = ?"))]
-    (j/execute! (:db conn) 
-      [p (add-version (first data)) (add-version (second data)) id])
-    (close-conn db)))
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (with-open [ps (jdbc/prepare con [(str "update " (:table conn) " set meta = ?, data = ? where id = ?") 
+                                      (add-version (first data)) 
+                                      (add-version (second data)) 
+                                      id])]
+      (jdbc/execute-one! ps))))
 
 (defn insert-it 
   [conn id data]
-  (let [db (get-conn (:db conn))
-        ^Connection raw-conn (db :connection)
-        p (j/prepare-statement raw-conn (str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)"))]
-    (j/execute! (:db conn) 
-      [p id (add-version (first data)) (add-version (second data))])
-    (close-conn db)))
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (with-open [ps (jdbc/prepare con [(str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)")
+                                      id
+                                      (add-version (first data)) 
+                                      (add-version (second data))])]
+      (jdbc/execute-one! ps))))
 
 (defn delete-it 
   [conn id]
-  (j/execute! (:db conn) [(str "delete from " (:table conn) " where id = '" id "'")])) 
+  (jdbc/execute! (:ds conn) [(str "delete from " (:table conn) " where id = '" id "'")])) 
 
 (defn get-keys 
   [conn]
-  (let [db (get-conn (:db conn))
-        res' (j/query db [(str "select id,meta from " (:table conn))])
+  (let [res' (jdbc/execute! (:ds conn) [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
         res (doall (map #(strip-version (:meta %)) res'))]
-    (close-conn db)
     res))
 
 
@@ -258,18 +252,19 @@
     (let [res-ch (async/chan 1)]                      
       (async/thread 
         (try
-          (let [dbtype (or (:dbtype db) (:subprotocol db))]
+          (let [dbtype (or (:dbtype db) (:subprotocol db))
+                datasource (jdbc/get-datasource db)]
             (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
             (case dbtype
 
               "postgresql" 
-                (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+                (jdbc/execute! datasource [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
             
-              (j/execute! db [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")]))
+                (jdbc/execute! datasource [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")]))
             
             (async/put! res-ch
-              (map->JDBCStore { :conn {:db db :table table}
+              (map->JDBCStore { :conn {:db db :table table :ds datasource}
                                 :read-handlers read-handlers
                                 :write-handlers write-handlers
                                 :serializer serializer

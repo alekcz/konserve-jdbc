@@ -1,11 +1,12 @@
 (ns konserve-jdbc.core-mysql-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve-jdbc.core :refer [new-jdbc-store delete-store] :as kjc]
             [hasch.core :as hasch]
             [malli.generator :as mg]
-            [clojure.java.jdbc :as j])
+            [clojure.java.jdbc :as j]
+            [next.jdbc :as jdbc])
   (:import  [clojure.lang ExceptionInfo]))
 
 
@@ -16,6 +17,26 @@
     :user "konserve"
     :password "password"
    })
+
+(defn reset-db [f]
+  (f)
+  (with-open [con (jdbc/get-connection conn)]
+    (jdbc/execute! con ["drop table if exists nil"])
+    (jdbc/execute! con ["drop table if exists test_write"])
+    (jdbc/execute! con ["drop table if exists test_update"])
+    (jdbc/execute! con ["drop table if exists test_exists"])
+    (jdbc/execute! con ["drop table if exists test_binary"])
+    (jdbc/execute! con ["drop table if exists test_key"])
+    (jdbc/execute! con ["drop table if exists test_append"])
+    (jdbc/execute! con ["drop table if exists test_realistic"])
+    (jdbc/execute! con ["drop table if exists test_bulk"])
+    (jdbc/execute! con ["drop table if exists test_version"])
+    (jdbc/execute! con ["drop table if exists test_serializer"])
+    (jdbc/execute! con ["drop table if exists test_compressor"])
+    (jdbc/execute! con ["drop table if exists test_encryptor"])
+    (jdbc/execute! con ["drop table if exists test_exceptions"])))
+
+(use-fixtures :once reset-db)
 
 (deftest get-nil-test
   (testing "Test getting on empty store"
@@ -250,7 +271,7 @@
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
           store (<!! (new-jdbc-store conn :table "test_exceptions"))
-          corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
+          corrupt (update-in store [:conn] #(dissoc % :db :ds))] ; let's corrupt our store
       (is (= ExceptionInfo (type (<!! (new-jdbc-store "-")))))
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
