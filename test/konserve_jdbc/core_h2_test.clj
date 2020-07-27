@@ -27,10 +27,8 @@
 (use-fixtures :once my-test-fixture)
 
 (def conn 
-  { :dbtype "h2:file"
-    :classname "org.h2.Driver"
-    :subprotocol "h2:file"
-    :subname "./temp/db"
+  { :dbtype "h2"
+    :dbname "./temp/konserve;DB_CLOSE_ON_EXIT=FALSE"
     :user "sa"
     :password ""
    })
@@ -44,7 +42,8 @@
       (is (not (<!! (k/exists? store :foo))))
       (is (= :default (<!! (k/get-in store [:fuu] :default))))
       (<!! (k/bget store :foo (fn [res] 
-                                (is (nil? res))))))))
+                                (is (nil? res)))))
+      (delete-store store))))
 
 (deftest write-value-test
   (testing "Test writing to store"
@@ -268,7 +267,7 @@
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
           store (<!! (new-jdbc-store conn :table "test_exceptions"))
-          corrupt (update-in store [:conn] #(dissoc % :db))] ; let's corrupt our store
+          corrupt (update-in store [:conn] #(dissoc % :db :ds))] ; let's corrupt our store
       (is (= ExceptionInfo (type (<!! (new-jdbc-store conn :table "")))))
       (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
       (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
