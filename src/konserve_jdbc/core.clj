@@ -5,7 +5,6 @@
             [hasch.core :as hasch]
             [clojure.java.jdbc :as j]
             [next.jdbc :as jdbc]
-            [next.jdbc.prepare :as p]
             [next.jdbc.result-set :as rs]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
@@ -16,11 +15,10 @@
                                         PKeyIterable
                                         -keys]])
   (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [java.sql Connection]
             [org.h2.jdbc JdbcBlob]))
 
 (set! *warn-on-reflection* 1)
-(def dbtypes ["h2" "h2:file" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
+(def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
 (def store-version 1)
 (def serializer 1)
 (def compressor 0)
@@ -45,38 +43,36 @@
 
 (defn it-exists? 
   [conn id]
-  (let [res (first (jdbc/execute! (:ds conn) [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
-    (not (nil? res)))) 
-  
-(defn get-conn [db]
-  (->> db j/get-connection (j/add-connection db)))
-
-(defn close-conn [db]
-  (.close ^Connection (db :connection)))
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (let [res (first (jdbc/execute! con [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
+      (not (nil? res)))))
 
 (defn get-it 
   [conn id]
-  (let [res' (first (jdbc/execute! (:ds conn) [(str "select * from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-        data (:data res')
-        meta (:meta res')
-        res (if (and meta data)
-              [(strip-version meta) (strip-version data)]
-              [nil nil])]
-    res))  
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (let [res' (first (jdbc/execute! con [(str "select * from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+          data (:data res')
+          meta (:meta res')
+          res (if (and meta data)
+                [(strip-version meta) (strip-version data)]
+                [nil nil])]
+      res)))
 
 (defn get-it-only
   [conn id]
-  (let [res' (first (jdbc/execute! (:ds conn) [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-        data (:data res')
-        res (when data (strip-version data))]
-    res))
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+          data (:data res')
+          res (when data (strip-version data))]
+      res)))
 
 (defn get-meta 
   [conn id]
-  (let [res' (first (jdbc/execute! (:ds conn) [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-        meta (:meta res')
-        res (when meta (strip-version meta))]
-    res))
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+          meta (:meta res')
+          res (when meta (strip-version meta))]
+      res)))
 
 (defn update-it 
   [conn id data]
@@ -102,9 +98,10 @@
 
 (defn get-keys 
   [conn]
-  (let [res' (jdbc/execute! (:ds conn) [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-        res (doall (map #(strip-version (:meta %)) res'))]
-    res))
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
+          res (doall (map #(strip-version (:meta %)) res'))]
+      res)))
 
 
 (defn str-uuid 
