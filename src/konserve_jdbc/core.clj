@@ -73,6 +73,14 @@
           res (when meta (strip-version meta))]
       res)))
 
+(defn get-headers 
+  [conn id]
+  (with-open [con (jdbc/get-connection (:ds conn))]
+    (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+          meta (:meta res')
+          res (when meta (->> meta extract-bytes vec (split-at 4) first byte-array))]
+      res)))
+
 (defn update-it 
   [conn id data]
   (with-open [con (jdbc/get-connection (:ds conn))]
@@ -153,6 +161,18 @@
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
       res-ch))
+
+  ; (-get-version 
+  ;   [this key] 
+  ;   (let [res-ch (async/chan 1)]
+  ;     (async/thread
+  ;       (try
+  ;         (let [res (get-version conn (str-uuid key))]
+  ;           (if (some? res) 
+  ;             (async/put! res-ch res)
+  ;             (async/close! res-ch)))
+  ;         (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
+  ;     res-ch))
 
   (-update-in 
     [this key-vec meta-up-fn up-fn args]
