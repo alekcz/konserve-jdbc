@@ -17,11 +17,10 @@ A [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://gi
          '[clojure.core.async :refer [<!!] :as async]
          '[konserve.core :as k])
   
-  (def h2 {   :classname "org.h2.Driver"
-              :subprotocol "h2:file"
-              :subname "./temp/db"
-              :user "sa"
-              :password ""})
+  (def h2 { :dbtype "h2"
+            :dbname "./temp/konserve;DB_CLOSE_ON_EXIT=FALSE"
+            :user "sa"
+            :password ""})
   
   (def mysql { :dbtype "mysql"
                :dbname "konserve"
