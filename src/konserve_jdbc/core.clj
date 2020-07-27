@@ -3,7 +3,6 @@
   (:require [clojure.core.async :as async]
             [konserve.serializers :as ser]
             [hasch.core :as hasch]
-            [clojure.java.jdbc :as j]
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
@@ -273,7 +272,7 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (j/execute! (-> store :conn :db) [(str "drop table " (-> store :conn :table))])
+        (jdbc/execute! (-> store :conn :ds) [(str "drop table " (-> store :conn :table))])
         (async/close! res-ch)
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))))          
     res-ch))
