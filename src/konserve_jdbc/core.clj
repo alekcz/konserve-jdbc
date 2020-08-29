@@ -21,9 +21,6 @@
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
 (def store-layout 1)
-(def serializer-byte 1)
-(def compressor-byte 0)
-(def encryptor-byte 0)
 
 (defn extract-bytes [obj]
   (cond
@@ -33,8 +30,11 @@
 
 (defn split-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
-    (let [bytes (extract-bytes bytes-or-blob)]
-      (map byte-array (->> bytes vec (split-at 4))))))
+    (let [bytes (extract-bytes bytes-or-blob)
+          data  (->> bytes vec (split-at 4))
+          streamer (fn [header data] (list (byte-array header) (-> data byte-array (ByteArrayInputStream.))))]
+      (apply streamer data))))
+    
 
 (defn it-exists? 
   [conn id]
@@ -109,9 +109,9 @@
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
-  [bytes]
-  { :input-stream  (ByteArrayInputStream. bytes) 
-    :size (count bytes)})
+  [stream]
+  { :input-stream stream
+    :size nil})
 
 (defrecord JDBCStore [conn default-serializer serializers compressor encryptor read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
@@ -129,11 +129,13 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (get-it-only conn (str-uuid key))
-                serializer (get serializers default-serializer)
-                reader (-> serializer identity)]
+          (let [[header res] (get-it-only conn (str-uuid key))]
             (if (some? res) 
-              (let [data (-deserialize reader read-handlers res)]
+              (let [rserializer (ser/byte->serializer (get header 1))
+                    rcompressor (comp/byte->compressor (get header 2))
+                    rencryptor  (encr/byte->encryptor  (get header 3))
+                    reader (-> rserializer rencryptor rcompressor)
+                    data (-deserialize reader read-handlers res)]
                 (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
@@ -144,11 +146,13 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (get-meta conn (str-uuid key))
-                serializer (get serializers default-serializer)
-                reader (-> serializer identity)]
+          (let [[header res] (get-meta conn (str-uuid key))]
             (if (some? res) 
-              (let [data (-deserialize reader read-handlers res)] 
+              (let [rserializer (ser/byte->serializer (get header 1))
+                    rcompressor (comp/byte->compressor (get header 2))
+                    rencryptor  (encr/byte->encryptor  (get header 3))
+                    reader (-> rserializer rencryptor rcompressor)
+                    data (-deserialize reader read-handlers res)] 
                 (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
@@ -159,35 +163,37 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [serializer (get serializers default-serializer)
-                reader (-> serializer identity)
-                writer (-> serializer identity)
-                [fkey & rkey] key-vec
-                [[metaheader ometa'] [valheader oval']] (get-it conn (str-uuid fkey))
+          (let [[fkey & rkey] key-vec
+                [[mheader ometa'] [vheader oval']] (get-it conn (str-uuid fkey))
                 old-val [(when ometa'
-                          (-deserialize reader read-handlers ometa'))
+                            (let [mserializer (ser/byte->serializer  (get mheader 1))
+                                  mcompressor (comp/byte->compressor (get mheader 2))
+                                  mencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  reader (-> mserializer mencryptor mcompressor)]
+                              (-deserialize reader read-handlers ometa')))
                          (when oval'
-                          (-deserialize reader read-handlers oval'))]            
+                            (let [vserializer (ser/byte->serializer  (get vheader 1))
+                                  vcompressor (comp/byte->compressor (get mheader 2))
+                                  vencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  reader (-> vserializer vencryptor vcompressor)]
+                              (-deserialize reader read-handlers oval')))]            
                 [nmeta nval] [(meta-up-fn (first old-val)) 
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
+                serializer (get serializers default-serializer)
+                writer (-> serializer compressor encryptor)
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
-            (print "header" 
-              store-layout 
-              (ser/serializer-class->byte (type serializer))
-              (comp/compressor->byte compressor)
-              (encr/encryptor->byte encryptor))
             (when nmeta 
-              (.write mbaos ^byte (byte store-layout))
-              (.write mbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
-              (.write mbaos ^byte (byte (comp/compressor->byte compressor)))
-              (.write mbaos ^byte (byte (encr/encryptor->byte encryptor)))
+              (.write mbaos ^byte store-layout)
+              (.write mbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write mbaos ^byte (comp/compressor->byte compressor))
+              (.write mbaos ^byte (encr/encryptor->byte encryptor))
               (-serialize writer mbaos write-handlers nmeta))
             (when nval 
-              (.write vbaos ^byte (byte store-layout))
-              (.write vbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
-              (.write vbaos ^byte (byte (comp/compressor->byte compressor)))
-              (.write vbaos ^byte (byte (encr/encryptor->byte encryptor)))
+              (.write vbaos ^byte store-layout)
+              (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write vbaos ^byte (comp/compressor->byte compressor))
+              (.write vbaos ^byte (encr/encryptor->byte encryptor))
               (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
               (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
@@ -214,9 +220,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [serializer (get serializers default-serializer)
-                reader (-> serializer identity)
-                [header res] (get-it-only conn (str-uuid key))]
+          (let [[_ res] (get-it-only conn (str-uuid key))]
             (if (some? res) 
               (async/put! res-ch (locked-cb (prep-stream res)))
               (async/close! res-ch)))
@@ -228,25 +232,29 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [serializer (get serializers default-serializer)
-                reader (-> serializer identity)
-                writer (-> serializer identity)
-                [[metaheader old-meta'] [valheader old-val]] (get-it conn (str-uuid key))
-                old-meta (when old-meta' (-deserialize reader read-handlers old-meta'))           
+          (let [[[mheader old-meta'] [_ old-val]] (get-it conn (str-uuid key))
+                old-meta (when old-meta' 
+                            (let [mserializer (ser/byte->serializer  (get mheader 1))
+                                  mcompressor (comp/byte->compressor (get mheader 2))
+                                  mencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  reader (-> mserializer mencryptor mcompressor)]
+                              (-deserialize reader read-handlers old-meta')))           
                 new-meta (meta-up-fn old-meta) 
+                serializer (get serializers default-serializer)
+                writer (-> serializer compressor encryptor)
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
             (when new-meta 
-              (.write mbaos ^byte (byte store-layout))
-              (.write mbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
-              (.write mbaos ^byte (byte (comp/compressor->byte compressor)))
-              (.write mbaos ^byte (byte (encr/encryptor->byte encryptor)))
+              (.write mbaos ^byte store-layout)
+              (.write mbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write mbaos ^byte (comp/compressor->byte compressor))
+              (.write mbaos ^byte (encr/encryptor->byte encryptor))
               (-serialize writer mbaos write-handlers new-meta))
             (when input
-              (.write vbaos ^byte (byte store-layout))
-              (.write vbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
-              (.write vbaos ^byte (byte (comp/compressor->byte compressor)))
-              (.write vbaos ^byte (byte (encr/encryptor->byte encryptor)))
+              (.write vbaos ^byte store-layout)
+              (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write vbaos ^byte (comp/compressor->byte compressor))
+              (.write vbaos ^byte (encr/encryptor->byte encryptor))
               (.write vbaos input 0 (count input)))  
             (if old-meta
               (update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
@@ -261,13 +269,14 @@
     (let [res-ch (async/chan)]
       (async/thread
         (try
-          (let [serializer (get serializers default-serializer)
-                reader (-> serializer identity)
-                key-stream (get-keys conn)
+          (let [key-stream (get-keys conn)
                 keys' (when key-stream
-                        (for [[kheader k] key-stream]
-                          (let [bais (ByteArrayInputStream. k)]
-                            (-deserialize reader read-handlers bais))))
+                        (for [[header k] key-stream]
+                          (let [rserializer (ser/byte->serializer (get header 1))
+                                rcompressor (comp/byte->compressor (get header 2))
+                                rencryptor  (encr/byte->encryptor  (get header 3))
+                                reader (-> rserializer rencryptor rcompressor)]
+                            (-deserialize reader read-handlers k))))
                 keys (doall (map :key keys'))]
             (doall
               (map #(async/put! res-ch %) keys))
@@ -280,7 +289,7 @@
   ([db & {:keys [table default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
                          table "konserve"
-                         compressor comp/null-compressor
+                         compressor comp/lz4-compressor
                          encryptor encr/null-encryptor
                          read-handlers (atom {})
                          write-handlers (atom {})}}]

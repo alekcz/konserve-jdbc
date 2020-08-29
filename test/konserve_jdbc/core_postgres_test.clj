@@ -2,7 +2,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store] :as kjc]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
             [hasch.core :as hasch]
             [malli.generator :as mg]
             [clojure.java.jdbc :as j]
@@ -196,81 +196,24 @@
                                            sevens)))))
       (delete-store store))))  
 
-(deftest layout-test
+(deftest header-test
   (testing "Test check for store layout being store with data"
     (let [_ (println "Checking if store layout is stored")
           store (<!! (new-jdbc-store conn :table "test_layout"))
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/store-layout) 
+      (is (= (byte 1) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       meta (:meta res)]
                   (-> meta vec (nth 0) )))))
-      (is (= (byte kjc/store-layout) 
+      (is (= (byte 1) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       data (:data res)]
                   (-> data vec (nth 0) )))))           
       (delete-store store))))
-
-(deftest serializer-test
-  (testing "Test check for serilizer type being store with data"
-    (let [_ (println "Checking if serilizer type is stored")
-          store (<!! (new-jdbc-store conn :table "test_serializer"))
-          id (str (hasch/uuid :foo))]
-      (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/serializer-byte) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      meta (:meta res)]
-                  (-> meta vec (nth 1) )))))
-      (is (= (byte kjc/serializer-byte) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      data (:data res)]
-                  (-> data vec (nth 1) )))))           
-      (delete-store store))))
-
-(deftest compressor-test
-  (testing "Test check for compressor type being store with data"
-    (let [_ (println "Checking if compressor type is stored")
-          store (<!! (new-jdbc-store conn :table "test_compressor"))
-          id (str (hasch/uuid :foo))]
-      (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/compressor-byte) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      meta (:meta res)]
-                  (-> meta vec (nth 2) )))))
-      (is (= (byte kjc/compressor-byte) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      data (:data res)]
-                  (-> data vec (nth 2) )))))           
-      (delete-store store))))
-
-(deftest encryptor-test
-  (testing "Test check for encryptor type being store with data"
-    (let [_ (println "Checking if encryptor type is stored")
-          store (<!! (new-jdbc-store conn :table "test_encryptor"))
-          id (str (hasch/uuid :foo))]
-      (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/encryptor-byte) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      meta (:meta res)]
-                  (-> meta vec (nth 3) )))))
-      (is (= (byte kjc/encryptor-byte) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      data (:data res)]
-                  (-> data vec (nth 3) )))))           
-      (delete-store store))))       
 
 (deftest exceptions-test
   (testing "Test exception handling"
