@@ -11,7 +11,13 @@
             [java.sql Blob]
             [java.io File]))
 
-
+(deftype UnknownType [])
+(defn exception? [thing]
+  (let [ex (type thing)]
+    (or (= clojure.lang.ExceptionInfo ex) 
+        (= java.lang.Exception ex) 
+        (= java.lang.Throwable ex))))
+        
 (defn delete-recursively [fname]
   (let [func (fn [func f]
                (when (.isDirectory ^File f)
@@ -194,12 +200,12 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/store-version) 
+      (is (= (byte kjc/layout) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec (nth 0) )))))
-      (is (= (byte kjc/store-version) 
+      (is (= (byte kjc/layout) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob data (:data res)]
@@ -265,19 +271,20 @@
 
 (deftest exceptions-test
   (testing "Test exception handling"
-    (let [_ (println "Generating exceptions")
-          store (<!! (new-jdbc-store conn :table "test_exceptions"))
-          corrupt (update-in store [:conn] #(dissoc % :db :ds))] ; let's corrupt our store
-      (is (= ExceptionInfo (type (<!! (new-jdbc-store conn :table "")))))
-      (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
-      (is (= ExceptionInfo (type (<!! (k/dissoc corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/assoc-in corrupt [:bad :robot] 10)))))
-      (is (= ExceptionInfo (type (<!! (k/update-in corrupt [:bad :robot] inc)))))
-      (is (= ExceptionInfo (type (<!! (k/exists? corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/keys corrupt)))))
-      (is (= ExceptionInfo (type (<!! (k/bget corrupt :bad (fn [_] nil))))))   
-      (is (= ExceptionInfo (type (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))   
-      (is (= ExceptionInfo (type (<!! (delete-store corrupt)))))
-      (delete-store store))))
+    (let [store (<!! (new-jdbc-store conn :table "test_exceptions"))
+          params (clojure.core/keys store)
+          corruptor (fn [s k] 
+                        (if (= (type (k s)) clojure.lang.Atom)
+                          (clojure.core/assoc-in s [k] (atom {})) 
+                          (clojure.core/assoc-in s [k] (UnknownType.))))
+          corrupt (reduce corruptor store params)] ; let's corrupt our store
+      (is (exception? (<!! (k/get corrupt :bad))))
+      (is (exception? (<!! (k/get-meta corrupt :bad))))
+      (is (exception? (<!! (k/assoc corrupt :bad 10))))
+      (is (exception? (<!! (k/dissoc corrupt :bad))))
+      (is (exception? (<!! (k/assoc-in corrupt [:bad :robot] 10))))
+      (is (exception? (<!! (k/update-in corrupt [:bad :robot] inc))))
+      (is (exception? (<!! (k/exists? corrupt :bad))))
+      (is (exception? (<!! (k/keys corrupt))))
+      (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
+      (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))))
