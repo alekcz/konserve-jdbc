@@ -6,8 +6,7 @@
             [hasch.core :as hasch]
             [malli.generator :as mg]
             [clojure.java.jdbc :as j]
-            [next.jdbc :as jdbc])
-  (:import  [clojure.lang ExceptionInfo]))
+            [next.jdbc :as jdbc]))
 
 (def conn { :dbtype "postgresql"
             :dbname "konserve"

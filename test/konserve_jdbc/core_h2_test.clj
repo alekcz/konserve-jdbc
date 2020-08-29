@@ -7,8 +7,7 @@
             [malli.generator :as mg]
             [clojure.java.jdbc :as j]
             [clojure.java.io :as io])
-  (:import  [clojure.lang ExceptionInfo]
-            [java.sql Blob]
+  (:import  [java.sql Blob]
             [java.io File]))
 
 (deftype UnknownType [])
