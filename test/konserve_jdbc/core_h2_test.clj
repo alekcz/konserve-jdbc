@@ -2,16 +2,19 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store] :as kjc]
-            [hasch.core :as hasch]
+            [konserve.storage-layout :as kl]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
             [malli.generator :as mg]
-            [clojure.java.jdbc :as j]
             [clojure.java.io :as io])
-  (:import  [clojure.lang ExceptionInfo]
-            [java.sql Blob]
-            [java.io File]))
+  (:import  [java.io File]))
 
-
+(deftype UnknownType [])
+(defn exception? [thing]
+  (let [ex (type thing)]
+    (or (= clojure.lang.ExceptionInfo ex) 
+        (= java.lang.Exception ex) 
+        (= java.lang.Throwable ex))))
+        
 (defn delete-recursively [fname]
   (let [func (fn [func f]
                (when (.isDirectory ^File f)
@@ -187,97 +190,61 @@
                                            sevens)))))
       (delete-store store))))  
 
-(deftest version-test
-  (testing "Test check for store version being store with data"
-    (let [_ (println "Checking if store version is stored")
-          store (<!! (new-jdbc-store conn :table "test_version"))
-          id (str (hasch/uuid :foo))]
+(deftest raw-meta-test
+  (testing "Test header storage"
+    (let [_ (println "Checking if headers are stored correctly")
+          store (<!! (new-jdbc-store conn :table "test_headers"))]
       (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/store-version) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob meta (:meta res)]
-                  (-> (.getBytes meta 0 (.length meta)) vec (nth 0) )))))
-      (is (= (byte kjc/store-version) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob data (:data res)]
-                  (-> (.getBytes data 0 (.length data)) vec (nth 0) )))))           
-      (delete-store store))))
+      (<!! (k/assoc store :eye :ear))
+      (let [mraw (<!! (kl/-get-raw-meta store :foo))
+            mraw2 (<!! (kl/-get-raw-meta store :eye))
+            header (take 4 (map byte mraw))]
+        (<!! (kl/-put-raw-meta store :foo mraw2))
+        (<!! (kl/-put-raw-meta store :baritone mraw2))
+        (is (= header [1 1 1 0]))
+        (is (= :eye (:key (<!! (k/get-meta store :foo)))))
+        (is (= :eye (:key (<!! (k/get-meta store :baritone))))))        
+      (delete-store store))))          
 
-(deftest serializer-test
-  (testing "Test check for serilizer type being store with data"
-    (let [_ (println "Checking if serilizer type is stored")
-          store (<!! (new-jdbc-store conn :table "test_serializer"))
-          id (str (hasch/uuid :foo))]
+(deftest raw-value-test
+  (testing "Test value storage"
+    (let [_ (println "Checking if values are stored correctly")
+          store (<!! (new-jdbc-store conn :table "test_values"))]
       (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/serializer) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob meta (:meta res)]
-                  (-> (.getBytes meta 0 (.length meta)) vec (nth 1) )))))
-      (is (= (byte kjc/serializer) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob data (:data res)]
-                  (-> (.getBytes data 0 (.length data)) vec (nth 1) )))))           
-      (delete-store store))))
-
-(deftest compressor-test
-  (testing "Test check for compressor type being store with data"
-    (let [_ (println "Checking if compressor type is stored")
-          store (<!! (new-jdbc-store conn :table "test_compressor"))
-          id (str (hasch/uuid :foo))]
-      (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/compressor) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob meta (:meta res)]
-                  (-> (.getBytes meta 0 (.length meta)) vec (nth 2) )))))
-      (is (= (byte kjc/compressor) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob data (:data res)]
-                  (-> (.getBytes data 0 (.length data)) vec (nth 2) )))))           
-      (delete-store store))))
-
-(deftest encryptor-test
-  (testing "Test check for encryptor type being store with data"
-    (let [_ (println "Checking if encryptor type is stored")
-          store (<!! (new-jdbc-store conn :table "test_encryptor"))
-          id (str (hasch/uuid :foo))]
-      (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/encryptor) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob meta (:meta res)]
-                  (-> (.getBytes meta 0 (.length meta)) vec (nth 3) )))))
-      (is (= (byte kjc/encryptor) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      ^Blob data (:data res)]
-                  (-> (.getBytes data 0 (.length data)) vec (nth 3) )))))           
-      (delete-store store))))            
+      (<!! (k/assoc store :eye :ear))
+      (let [mvalue (<!! (kl/-get-raw-value store :foo))
+            mvalue2 (<!! (kl/-get-raw-value store :eye))
+            header (take 4 (map byte mvalue))]
+        (<!! (kl/-put-raw-value store :foo mvalue2))
+        (<!! (kl/-put-raw-value store :baritone mvalue2))
+        (is (= header [1 1 1 0]))
+        (is (= :ear (<!! (k/get store :foo))))
+        (is (= :ear (<!! (k/get store :baritone)))))      
+      (delete-store store))))   
 
 (deftest exceptions-test
   (testing "Test exception handling"
     (let [_ (println "Generating exceptions")
           store (<!! (new-jdbc-store conn :table "test_exceptions"))
-          corrupt (update-in store [:conn] #(dissoc % :db :ds))] ; let's corrupt our store
-      (is (= ExceptionInfo (type (<!! (new-jdbc-store conn :table "")))))
-      (is (= ExceptionInfo (type (<!! (k/get corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/get-meta corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/assoc corrupt :bad 10)))))
-      (is (= ExceptionInfo (type (<!! (k/dissoc corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/assoc-in corrupt [:bad :robot] 10)))))
-      (is (= ExceptionInfo (type (<!! (k/update-in corrupt [:bad :robot] inc)))))
-      (is (= ExceptionInfo (type (<!! (k/exists? corrupt :bad)))))
-      (is (= ExceptionInfo (type (<!! (k/keys corrupt)))))
-      (is (= ExceptionInfo (type (<!! (k/bget corrupt :bad (fn [_] nil))))))   
-      (is (= ExceptionInfo (type (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))   
-      (is (= ExceptionInfo (type (<!! (delete-store corrupt)))))
-      (delete-store store))))
+          params (clojure.core/keys store)
+          corruptor (fn [s k] 
+                        (if (= (type (k s)) clojure.lang.Atom)
+                          (clojure.core/assoc-in s [k] (atom {})) 
+                          (clojure.core/assoc-in s [k] (UnknownType.))))
+          corrupt (reduce corruptor store params)] ; let's corrupt our store
+      (delete-store store)          
+      (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions2"))))
+      (is (exception? (<!! (k/get corrupt :bad))))
+      (is (exception? (<!! (k/get-meta corrupt :bad))))
+      (is (exception? (<!! (k/assoc corrupt :bad 10))))
+      (is (exception? (<!! (k/dissoc corrupt :bad))))
+      (is (exception? (<!! (k/assoc-in corrupt [:bad :robot] 10))))
+      (is (exception? (<!! (k/update-in corrupt [:bad :robot] inc))))
+      (is (exception? (<!! (k/exists? corrupt :bad))))
+      (is (exception? (<!! (k/keys corrupt))))
+      (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
+      (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10))))))
+      (is (exception? (<!! (kl/-get-raw-value corrupt :bad))))
+      (is (exception? (<!! (kl/-put-raw-value corrupt :bad (byte-array (range 10))))))
+      (is (exception? (<!! (kl/-get-raw-meta corrupt :bad))))
+      (is (exception? (<!! (kl/-put-raw-meta corrupt :bad (byte-array (range 10)))))))))

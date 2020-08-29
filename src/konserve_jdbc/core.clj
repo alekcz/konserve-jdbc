@@ -2,9 +2,11 @@
   "Address globally aggregated immutable key-value conn(s)."
   (:require [clojure.core.async :as async]
             [konserve.serializers :as ser]
+            [konserve.compressor :as comp]
+            [konserve.encryptor :as encr]
             [hasch.core :as hasch]
+            [konserve-jdbc.io :as io]
             [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
                                         -update-in -assoc-in -dissoc
@@ -12,96 +14,13 @@
                                         -bassoc -bget
                                         -serialize -deserialize
                                         PKeyIterable
-                                        -keys]])
-  (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [org.h2.jdbc JdbcBlob]))
+                                        -keys]]
+            [konserve.storage-layout :refer [Layout2]])
+  (:import  [java.io ByteArrayOutputStream]))
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
-(def store-version 1)
-(def serializer 1)
-(def compressor 0)
-(def encryptor 0)
-
-(defn add-version [bytes]
-  (when (seq bytes) 
-    (byte-array (into [] (concat 
-                            [(byte store-version) (byte serializer) (byte compressor) (byte encryptor)] 
-                            (vec bytes))))))
-
-(defn extract-bytes [obj]
-  (cond
-    (= org.h2.jdbc.JdbcBlob (type obj))
-      (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
-    :else obj))
-
-(defn strip-version [bytes-or-blob]
-  (when (some? bytes-or-blob) 
-    (let [bytes (extract-bytes bytes-or-blob)]
-      (byte-array (->> bytes vec (split-at 4) second)))))
-
-(defn it-exists? 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res (first (jdbc/execute! con [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
-      (not (nil? res)))))
-
-(defn get-it 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select * from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          data (:data res')
-          meta (:meta res')
-          res (if (and meta data)
-                [(strip-version meta) (strip-version data)]
-                [nil nil])]
-      res)))
-
-(defn get-it-only
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          data (:data res')
-          res (when data (strip-version data))]
-      res)))
-
-(defn get-meta 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          meta (:meta res')
-          res (when meta (strip-version meta))]
-      res)))
-
-(defn update-it 
-  [conn id data]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (with-open [ps (jdbc/prepare con [(str "update " (:table conn) " set meta = ?, data = ? where id = ?") 
-                                      (add-version (first data)) 
-                                      (add-version (second data)) 
-                                      id])]
-      (jdbc/execute-one! ps))))
-
-(defn insert-it 
-  [conn id data]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (with-open [ps (jdbc/prepare con [(str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)")
-                                      id
-                                      (add-version (first data)) 
-                                      (add-version (second data))])]
-      (jdbc/execute-one! ps))))
-
-(defn delete-it 
-  [conn id]
-  (jdbc/execute! (:ds conn) [(str "delete from " (:table conn) " where id = '" id "'")])) 
-
-(defn get-keys 
-  [conn]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-          res (doall (map #(strip-version (:meta %)) res'))]
-      res)))
-
+(def store-layout 1)
 
 (defn str-uuid 
   [key] 
@@ -113,18 +32,18 @@
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
-  [bytes]
-  { :input-stream  (ByteArrayInputStream. bytes) 
-    :size (count bytes)})
+  [stream]
+  { :input-stream stream
+    :size nil})
 
-(defrecord JDBCStore [conn serializer read-handlers write-handlers locks]
+(defrecord JDBCStore [conn default-serializer serializers compressor encryptor read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
   (-exists? 
     [this key] 
       (let [res-ch (async/chan 1)]
         (async/thread
           (try
-            (async/put! res-ch (it-exists? conn (str-uuid key)))
+            (async/put! res-ch (io/it-exists? conn (str-uuid key)))
             (catch Exception e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
         res-ch))
 
@@ -133,9 +52,13 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it-only conn (str-uuid key))]
+          (let [[header res] (io/get-it-only conn (str-uuid key))]
             (if (some? res) 
-              (let [data (-deserialize serializer read-handlers res)]
+              (let [rserializer (ser/byte->serializer (get header 1))
+                    rcompressor (comp/byte->compressor (get header 2))
+                    rencryptor  (encr/byte->encryptor  (get header 3))
+                    reader (-> rserializer rencryptor rcompressor)
+                    data (-deserialize reader read-handlers res)]
                 (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
@@ -146,12 +69,16 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-meta conn (str-uuid key))]
+          (let [[header res] (io/get-meta conn (str-uuid key))]
             (if (some? res) 
-              (let [data (-deserialize serializer read-handlers res)] 
+              (let [rserializer (ser/byte->serializer (get header 1))
+                    rcompressor (comp/byte->compressor (get header 2))
+                    rencryptor  (encr/byte->encryptor  (get header 3))
+                    reader (-> rserializer rencryptor rcompressor)
+                    data (-deserialize reader read-handlers res)] 
                 (async/put! res-ch data))
               (async/close! res-ch)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))))
       res-ch))
 
   (-update-in 
@@ -160,20 +87,40 @@
       (async/thread
         (try
           (let [[fkey & rkey] key-vec
-                [ometa' oval'] (get-it conn (str-uuid fkey))
+                [[mheader ometa'] [vheader oval']] (io/get-it conn (str-uuid fkey))
                 old-val [(when ometa'
-                          (-deserialize serializer read-handlers ometa'))
+                            (let [mserializer (ser/byte->serializer  (get mheader 1))
+                                  mcompressor (comp/byte->compressor (get mheader 2))
+                                  mencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  reader (-> mserializer mencryptor mcompressor)]
+                              (-deserialize reader read-handlers ometa')))
                          (when oval'
-                          (-deserialize serializer read-handlers oval'))]            
+                            (let [vserializer (ser/byte->serializer  (get vheader 1))
+                                  vcompressor (comp/byte->compressor (get mheader 2))
+                                  vencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  reader (-> vserializer vencryptor vcompressor)]
+                              (-deserialize reader read-handlers oval')))]            
                 [nmeta nval] [(meta-up-fn (first old-val)) 
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
+                serializer (get serializers default-serializer)
+                writer (-> serializer compressor encryptor)
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
-            (when nmeta (-serialize serializer mbaos write-handlers nmeta))
-            (when nval (-serialize serializer vbaos write-handlers nval))    
+            (when nmeta 
+              (.write mbaos ^byte store-layout)
+              (.write mbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write mbaos ^byte (comp/compressor->byte compressor))
+              (.write mbaos ^byte (encr/encryptor->byte encryptor))
+              (-serialize writer mbaos write-handlers nmeta))
+            (when nval 
+              (.write vbaos ^byte store-layout)
+              (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write vbaos ^byte (comp/compressor->byte compressor))
+              (.write vbaos ^byte (encr/encryptor->byte encryptor))
+              (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
-              (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
-              (insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
+              (io/update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (io/insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
@@ -185,7 +132,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (delete-it conn (str-uuid key))
+          (io/delete-it conn (str-uuid key))
           (async/close! res-ch)
           (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))))
         res-ch))
@@ -196,7 +143,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it-only conn (str-uuid key))]
+          (let [[_ res] (io/get-it-only conn (str-uuid key))]
             (if (some? res) 
               (async/put! res-ch (locked-cb (prep-stream res)))
               (async/close! res-ch)))
@@ -208,14 +155,33 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[old-meta' old-val] (get-it conn (str-uuid key))
-                old-meta (when old-meta' (-deserialize serializer read-handlers old-meta'))           
+          (let [[[mheader old-meta'] [_ old-val]] (io/get-it conn (str-uuid key))
+                old-meta (when old-meta' 
+                            (let [mserializer (ser/byte->serializer  (get mheader 1))
+                                  mcompressor (comp/byte->compressor (get mheader 2))
+                                  mencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  reader (-> mserializer mencryptor mcompressor)]
+                              (-deserialize reader read-handlers old-meta')))           
                 new-meta (meta-up-fn old-meta) 
-                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
-            (when new-meta (-serialize serializer mbaos write-handlers new-meta))
+                serializer (get serializers default-serializer)
+                writer (-> serializer compressor encryptor)
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
+                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+            (when new-meta 
+              (.write mbaos ^byte store-layout)
+              (.write mbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write mbaos ^byte (comp/compressor->byte compressor))
+              (.write mbaos ^byte (encr/encryptor->byte encryptor))
+              (-serialize writer mbaos write-handlers new-meta))
+            (when input
+              (.write vbaos ^byte store-layout)
+              (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
+              (.write vbaos ^byte (comp/compressor->byte compressor))
+              (.write vbaos ^byte (encr/encryptor->byte encryptor))
+              (.write vbaos input 0 (count input)))  
             (if old-meta
-              (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
-              (insert-it conn (str-uuid key) [(.toByteArray mbaos) input]))
+              (io/update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (io/insert-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [old-val input]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
         res-ch))
@@ -226,32 +192,71 @@
     (let [res-ch (async/chan)]
       (async/thread
         (try
-          (let [key-stream (get-keys conn)
+          (let [key-stream (io/get-keys conn)
                 keys' (when key-stream
-                        (for [k key-stream]
-                          (let [bais (ByteArrayInputStream. k)]
-                            (-deserialize serializer read-handlers bais))))
+                        (for [[header k] key-stream]
+                          (let [rserializer (ser/byte->serializer (get header 1))
+                                rcompressor (comp/byte->compressor (get header 2))
+                                rencryptor  (encr/byte->encryptor  (get header 3))
+                                reader (-> rserializer rencryptor rcompressor)]
+                            (-deserialize reader read-handlers k))))
                 keys (doall (map :key keys'))]
             (doall
               (map #(async/put! res-ch %) keys))
             (async/close! res-ch)) 
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
-        res-ch)))
+        res-ch))
+        
+  Layout2      
+  (-get-raw-meta [this key]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (async/put! res-ch (io/raw-get-meta conn (str-uuid key)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw metadata from store" e)))))
+      res-ch))
+  (-put-raw-meta [store key blob]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (if (io/it-exists? conn (str-uuid key))
+            (async/put! res-ch (io/raw-update-meta conn (str-uuid key) blob))
+            (async/put! res-ch (io/raw-insert-meta conn (str-uuid key) blob)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw metadata to store" e)))))
+      res-ch))
+  (-get-raw-value [store key]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (async/put! res-ch (io/raw-get-it-only conn (str-uuid key)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw value from store" e)))))
+      res-ch))
+  (-put-raw-value [store key blob]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (if (io/it-exists? conn (str-uuid key))
+            (async/put! res-ch (io/raw-update-it-only conn (str-uuid key) blob))
+            (async/put! res-ch (io/raw-insert-it-only conn (str-uuid key) blob)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))))
+      res-ch)))
 
 
 (defn new-jdbc-store
-  ([db & {:keys [table serializer read-handlers write-handlers]
-                    :or {table "konserve"
-                         serializer (ser/fressian-serializer)
+  ([db & {:keys [table default-serializer serializers compressor encryptor read-handlers write-handlers]
+                    :or {default-serializer :FressianSerializer
+                         table "konserve"
+                         compressor comp/lz4-compressor
+                         encryptor encr/null-encryptor
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
-    (let [res-ch (async/chan 1)]                      
+    (let [res-ch (async/chan 1)
+          dbtype (or (:dbtype db) (:subprotocol db))]                      
       (async/thread 
         (try
-          (let [dbtype (or (:dbtype db) (:subprotocol db))
-                datasource (jdbc/get-datasource db)]
-            (when-not dbtype 
+          (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
+          (let [datasource (jdbc/get-datasource db)]
             (case dbtype
 
               "postgresql" 
@@ -261,9 +266,12 @@
             
             (async/put! res-ch
               (map->JDBCStore { :conn {:db db :table table :ds datasource}
+                                :default-serializer default-serializer
+                                :serializers (merge ser/key->serializer serializers)
+                                :compressor compressor
+                                :encryptor encryptor
                                 :read-handlers read-handlers
                                 :write-handlers write-handlers
-                                :serializer serializer
                                 :locks (atom {})})))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
       res-ch)))
