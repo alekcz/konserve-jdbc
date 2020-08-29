@@ -2,10 +2,9 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
+            [konserve.storage-layout :as kl]
             [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
-            [hasch.core :as hasch]
             [malli.generator :as mg]
-            [clojure.java.jdbc :as j]
             [next.jdbc :as jdbc]))
 
 
@@ -37,10 +36,8 @@
     (jdbc/execute! con ["drop table if exists test_append"])
     (jdbc/execute! con ["drop table if exists test_realistic"])
     (jdbc/execute! con ["drop table if exists test_bulk"])
-    (jdbc/execute! con ["drop table if exists test_layout"])
-    (jdbc/execute! con ["drop table if exists test_serializer"])
-    (jdbc/execute! con ["drop table if exists test_compressor"])
-    (jdbc/execute! con ["drop table if exists test_encryptor"])
+    (jdbc/execute! con ["drop table if exists test_headers"])
+    (jdbc/execute! con ["drop table if exists test_values"])
     (jdbc/execute! con ["drop table if exists test_exceptions"])))
 
 (use-fixtures :once reset-db)
@@ -198,24 +195,37 @@
                                            sevens)))))
       (delete-store store))))  
 
-(deftest header-test
-  (testing "Test check for store layout being store with data"
-    (let [_ (println "Checking if store layout is stored")
-          store (<!! (new-jdbc-store conn :table "test_layout"))
-          id (str (hasch/uuid :foo))]
+(deftest raw-meta-test
+  (testing "Test header storage"
+    (let [_ (println "Checking if headers are stored correctly")
+          store (<!! (new-jdbc-store conn :table "test_headers"))]
       (<!! (k/assoc store :foo :bar))
-      (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte 1) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
-                      meta (:meta res)]
-                  (-> meta vec (nth 0) )))))
-      (is (= (byte 1) 
-             (j/with-db-connection [db (-> store :conn :db)]
-                (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
-                      data (:data res)]
-                  (-> data vec (nth 0) )))))           
-      (delete-store store))))      
+      (<!! (k/assoc store :eye :ear))
+      (let [mraw (<!! (kl/-get-raw-meta store :foo))
+            mraw2 (<!! (kl/-get-raw-meta store :eye))
+            header (take 4 (map byte mraw))]
+        (<!! (kl/-put-raw-meta store :foo mraw2))
+        (<!! (kl/-put-raw-meta store :baritone mraw2))
+        (is (= header [1 1 1 0]))
+        (is (= :eye (:key (<!! (k/get-meta store :foo)))))
+        (is (= :eye (:key (<!! (k/get-meta store :baritone))))))        
+      (delete-store store))))          
+
+(deftest raw-value-test
+  (testing "Test value storage"
+    (let [_ (println "Checking if values are stored correctly")
+          store (<!! (new-jdbc-store conn :table "test_values"))]
+      (<!! (k/assoc store :foo :bar))
+      (<!! (k/assoc store :eye :ear))
+      (let [mvalue (<!! (kl/-get-raw-value store :foo))
+            mvalue2 (<!! (kl/-get-raw-value store :eye))
+            header (take 4 (map byte mvalue))]
+        (<!! (kl/-put-raw-value store :foo mvalue2))
+        (<!! (kl/-put-raw-value store :baritone mvalue2))
+        (is (= header [1 1 1 0]))
+        (is (= :ear (<!! (k/get store :foo))))
+        (is (= :ear (<!! (k/get store :baritone)))))      
+      (delete-store store))))     
 
 (deftest exceptions-test
   (testing "Test exception handling"

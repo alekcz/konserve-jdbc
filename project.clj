@@ -13,5 +13,5 @@
                  [org.postgresql/postgresql "42.2.12"]
                  [io.replikativ/konserve "0.6.0-SNAPSHOT"]]
   :repl-options {:init-ns konserve-jdbc.core}
-  :plugins [[lein-cloverage "1.1.2"]]
+  :plugins [[lein-cloverage "1.2.0"]]
   :profiles { :dev {:dependencies [[metosin/malli "0.0.1-20200404.091302-14"]]}})

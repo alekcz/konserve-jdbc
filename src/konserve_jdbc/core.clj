@@ -5,8 +5,8 @@
             [konserve.compressor :as comp]
             [konserve.encryptor :as encr]
             [hasch.core :as hasch]
+            [konserve-jdbc.io :as io]
             [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
                                         -update-in -assoc-in -dissoc
@@ -14,90 +14,13 @@
                                         -bassoc -bget
                                         -serialize -deserialize
                                         PKeyIterable
-                                        -keys]])
-  (:import  [java.io ByteArrayInputStream ByteArrayOutputStream]
-            [org.h2.jdbc JdbcBlob]))
+                                        -keys]]
+            [konserve.storage-layout :refer [Layout2]])
+  (:import  [java.io ByteArrayOutputStream]))
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
 (def store-layout 1)
-
-(defn extract-bytes [obj]
-  (cond
-    (= org.h2.jdbc.JdbcBlob (type obj))
-      (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
-    :else obj))
-
-(defn split-header [bytes-or-blob]
-  (when (some? bytes-or-blob) 
-    (let [bytes (extract-bytes bytes-or-blob)
-          data  (->> bytes vec (split-at 4))
-          streamer (fn [header data] (list (byte-array header) (-> data byte-array (ByteArrayInputStream.))))]
-      (apply streamer data))))
-    
-
-(defn it-exists? 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res (first (jdbc/execute! con [(str "select 1 from " (:table conn) " where id = '" id "'")]))]
-      (not (nil? res)))))
-
-(defn get-it 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select * from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          data (:data res')
-          meta (:meta res')
-          res (if (and meta data)
-                [(split-header meta) (split-header data)]
-                [nil nil])]
-      res)))
-
-(defn get-it-only
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          data (:data res')
-          res (when data (split-header data))]
-      res)))
-
-(defn get-meta 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          meta (:meta res')
-          res (when meta (split-header meta))]
-      res)))
-
-(defn update-it 
-  [conn id data]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (with-open [ps (jdbc/prepare con [(str "update " (:table conn) " set meta = ?, data = ? where id = ?") 
-                                      (first data)
-                                      (second data)
-                                      id])]
-      (jdbc/execute-one! ps))))
-
-(defn insert-it 
-  [conn id data]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (with-open [ps (jdbc/prepare con [(str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)")
-                                      id
-                                      (first data)
-                                      (second data)])]
-      (jdbc/execute-one! ps))))
-
-(defn delete-it 
-  [conn id]
-  (jdbc/execute! (:ds conn) [(str "delete from " (:table conn) " where id = '" id "'")])) 
-
-(defn get-keys 
-  [conn]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-          res (doall (map #(split-header (:meta %)) res'))]
-      res)))
-
 
 (defn str-uuid 
   [key] 
@@ -120,7 +43,7 @@
       (let [res-ch (async/chan 1)]
         (async/thread
           (try
-            (async/put! res-ch (it-exists? conn (str-uuid key)))
+            (async/put! res-ch (io/it-exists? conn (str-uuid key)))
             (catch Exception e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
         res-ch))
 
@@ -129,7 +52,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (get-it-only conn (str-uuid key))]
+          (let [[header res] (io/get-it-only conn (str-uuid key))]
             (if (some? res) 
               (let [rserializer (ser/byte->serializer (get header 1))
                     rcompressor (comp/byte->compressor (get header 2))
@@ -146,7 +69,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (get-meta conn (str-uuid key))]
+          (let [[header res] (io/get-meta conn (str-uuid key))]
             (if (some? res) 
               (let [rserializer (ser/byte->serializer (get header 1))
                     rcompressor (comp/byte->compressor (get header 2))
@@ -155,7 +78,7 @@
                     data (-deserialize reader read-handlers res)] 
                 (async/put! res-ch data))
               (async/close! res-ch)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))))
       res-ch))
 
   (-update-in 
@@ -164,7 +87,7 @@
       (async/thread
         (try
           (let [[fkey & rkey] key-vec
-                [[mheader ometa'] [vheader oval']] (get-it conn (str-uuid fkey))
+                [[mheader ometa'] [vheader oval']] (io/get-it conn (str-uuid fkey))
                 old-val [(when ometa'
                             (let [mserializer (ser/byte->serializer  (get mheader 1))
                                   mcompressor (comp/byte->compressor (get mheader 2))
@@ -196,8 +119,8 @@
               (.write vbaos ^byte (encr/encryptor->byte encryptor))
               (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
-              (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
-              (insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
+              (io/update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (io/insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
         res-ch))
@@ -209,7 +132,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (delete-it conn (str-uuid key))
+          (io/delete-it conn (str-uuid key))
           (async/close! res-ch)
           (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))))
         res-ch))
@@ -220,7 +143,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[_ res] (get-it-only conn (str-uuid key))]
+          (let [[_ res] (io/get-it-only conn (str-uuid key))]
             (if (some? res) 
               (async/put! res-ch (locked-cb (prep-stream res)))
               (async/close! res-ch)))
@@ -232,7 +155,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[[mheader old-meta'] [_ old-val]] (get-it conn (str-uuid key))
+          (let [[[mheader old-meta'] [_ old-val]] (io/get-it conn (str-uuid key))
                 old-meta (when old-meta' 
                             (let [mserializer (ser/byte->serializer  (get mheader 1))
                                   mcompressor (comp/byte->compressor (get mheader 2))
@@ -257,8 +180,8 @@
               (.write vbaos ^byte (encr/encryptor->byte encryptor))
               (.write vbaos input 0 (count input)))  
             (if old-meta
-              (update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
-              (insert-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
+              (io/update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (io/insert-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [old-val input]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
         res-ch))
@@ -269,7 +192,7 @@
     (let [res-ch (async/chan)]
       (async/thread
         (try
-          (let [key-stream (get-keys conn)
+          (let [key-stream (io/get-keys conn)
                 keys' (when key-stream
                         (for [[header k] key-stream]
                           (let [rserializer (ser/byte->serializer (get header 1))
@@ -282,7 +205,41 @@
               (map #(async/put! res-ch %) keys))
             (async/close! res-ch)) 
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
-        res-ch)))
+        res-ch))
+        
+  Layout2      
+  (-get-raw-meta [this key]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (async/put! res-ch (io/raw-get-meta conn (str-uuid key)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw metadata from store" e)))))
+      res-ch))
+  (-put-raw-meta [store key blob]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (if (io/it-exists? conn (str-uuid key))
+            (async/put! res-ch (io/raw-update-meta conn (str-uuid key) blob))
+            (async/put! res-ch (io/raw-insert-meta conn (str-uuid key) blob)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw metadata to store" e)))))
+      res-ch))
+  (-get-raw-value [store key]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (async/put! res-ch (io/raw-get-it-only conn (str-uuid key)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw value from store" e)))))
+      res-ch))
+  (-put-raw-value [store key blob]
+    (let [res-ch (async/chan 1)]
+      (async/thread
+        (try
+          (if (io/it-exists? conn (str-uuid key))
+            (async/put! res-ch (io/raw-update-it-only conn (str-uuid key) blob))
+            (async/put! res-ch (io/raw-insert-it-only conn (str-uuid key) blob)))
+          (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))))
+      res-ch)))
 
 
 (defn new-jdbc-store
