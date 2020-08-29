@@ -25,22 +25,16 @@
 (def compressor-byte 0)
 (def encryptor-byte 0)
 
-(defn add-header [bytes]
-  (when (seq bytes) 
-    (byte-array (into [] (concat 
-                            [(byte layout-byte) (byte serializer-byte) (byte compressor-byte) (byte encryptor-byte)] 
-                            (vec bytes))))))
-
 (defn extract-bytes [obj]
   (cond
     (= org.h2.jdbc.JdbcBlob (type obj))
       (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
     :else obj))
 
-(defn strip-header [bytes-or-blob]
+(defn split-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
     (let [bytes (extract-bytes bytes-or-blob)]
-      (byte-array (->> bytes vec (split-at 4) second)))))
+      (map byte-array (->> bytes vec (split-at 4))))))
 
 (defn it-exists? 
   [conn id]
@@ -55,7 +49,7 @@
           data (:data res')
           meta (:meta res')
           res (if (and meta data)
-                [(strip-header meta) (strip-header data)]
+                [(split-header meta) (split-header data)]
                 [nil nil])]
       res)))
 
@@ -64,7 +58,7 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           data (:data res')
-          res (when data (strip-header data))]
+          res (when data (split-header data))]
       res)))
 
 (defn get-meta 
@@ -72,15 +66,15 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           meta (:meta res')
-          res (when meta (strip-header meta))]
+          res (when meta (split-header meta))]
       res)))
 
 (defn update-it 
   [conn id data]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (with-open [ps (jdbc/prepare con [(str "update " (:table conn) " set meta = ?, data = ? where id = ?") 
-                                      (add-header (first data)) 
-                                      (add-header (second data)) 
+                                      (first data)
+                                      (second data)
                                       id])]
       (jdbc/execute-one! ps))))
 
@@ -89,8 +83,8 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (with-open [ps (jdbc/prepare con [(str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)")
                                       id
-                                      (add-header (first data)) 
-                                      (add-header (second data))])]
+                                      (first data)
+                                      (second data)])]
       (jdbc/execute-one! ps))))
 
 (defn delete-it 
@@ -101,7 +95,7 @@
   [conn]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-          res (doall (map #(strip-header (:meta %)) res'))]
+          res (doall (map #(split-header (:meta %)) res'))]
       res)))
 
 
@@ -135,9 +129,9 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [serializer (get serializers default-serializer)
-                reader (-> serializer identity)
-                res (get-it-only conn (str-uuid key))]
+          (let [[header res] (get-it-only conn (str-uuid key))
+                serializer (get serializers default-serializer)
+                reader (-> serializer identity)]
             (if (some? res) 
               (let [data (-deserialize reader read-handlers res)]
                 (async/put! res-ch data))
@@ -150,9 +144,9 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [serializer (get serializers default-serializer)
-                reader (-> serializer identity)
-                res (get-meta conn (str-uuid key))]
+          (let [[header res] (get-meta conn (str-uuid key))
+                serializer (get serializers default-serializer)
+                reader (-> serializer identity)]
             (if (some? res) 
               (let [data (-deserialize reader read-handlers res)] 
                 (async/put! res-ch data))
@@ -169,7 +163,7 @@
                 reader (-> serializer identity)
                 writer (-> serializer identity)
                 [fkey & rkey] key-vec
-                [ometa' oval'] (get-it conn (str-uuid fkey))
+                [[metaheader ometa'] [valheader oval']] (get-it conn (str-uuid fkey))
                 old-val [(when ometa'
                           (-deserialize reader read-handlers ometa'))
                          (when oval'
@@ -178,8 +172,18 @@
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
-            (when nmeta (-serialize writer mbaos write-handlers nmeta))
-            (when nval (-serialize writer vbaos write-handlers nval))    
+            (when nmeta 
+              (.write mbaos ^byte (byte 1))
+              (.write mbaos ^byte (byte 1))
+              (.write mbaos ^byte (byte 0))
+              (.write mbaos ^byte (byte 0))
+              (-serialize writer mbaos write-handlers nmeta))
+            (when nval 
+              (.write vbaos ^byte (byte 1))
+              (.write vbaos ^byte (byte 1))
+              (.write vbaos ^byte (byte 0))
+              (.write vbaos ^byte (byte 0))
+              (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
               (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
               (insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
@@ -207,7 +211,7 @@
         (try
           (let [serializer (get serializers default-serializer)
                 reader (-> serializer identity)
-                res (get-it-only conn (str-uuid key))]
+                [header res] (get-it-only conn (str-uuid key))]
             (if (some? res) 
               (async/put! res-ch (locked-cb (prep-stream res)))
               (async/close! res-ch)))
@@ -222,14 +226,26 @@
           (let [serializer (get serializers default-serializer)
                 reader (-> serializer identity)
                 writer (-> serializer identity)
-                [old-meta' old-val] (get-it conn (str-uuid key))
+                [[metaheader old-meta'] [valheader old-val]] (get-it conn (str-uuid key))
                 old-meta (when old-meta' (-deserialize reader read-handlers old-meta'))           
                 new-meta (meta-up-fn old-meta) 
-                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
-            (when new-meta (-serialize writer mbaos write-handlers new-meta))
+                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
+                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+            (when new-meta 
+              (.write mbaos ^byte (byte 1))
+              (.write mbaos ^byte (byte 1))
+              (.write mbaos ^byte (byte 0))
+              (.write mbaos ^byte (byte 0))  
+              (-serialize writer mbaos write-handlers new-meta))
+            (when input
+              (.write vbaos ^byte (byte 1))
+              (.write vbaos ^byte (byte 1))
+              (.write vbaos ^byte (byte 0))
+              (.write vbaos ^byte (byte 0))  
+              (.write vbaos input 0 (count input)))  
             (if old-meta
-              (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
-              (insert-it conn (str-uuid key) [(.toByteArray mbaos) input]))
+              (update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (insert-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [old-val input]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
         res-ch))
@@ -244,7 +260,7 @@
                 reader (-> serializer identity)
                 key-stream (get-keys conn)
                 keys' (when key-stream
-                        (for [k key-stream]
+                        (for [[kheader k] key-stream]
                           (let [bais (ByteArrayInputStream. k)]
                             (-deserialize reader read-handlers bais))))
                 keys (doall (map :key keys'))]
