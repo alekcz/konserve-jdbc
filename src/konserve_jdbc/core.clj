@@ -143,9 +143,14 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[_ res] (io/get-it-only conn (str-uuid key))]
+          (let [[header res] (io/get-it-only conn (str-uuid key))]
             (if (some? res) 
-              (async/put! res-ch (locked-cb (prep-stream res)))
+              (let [rserializer (ser/byte->serializer (get header 1))
+                    rcompressor (comp/byte->compressor (get header 2))
+                    rencryptor  (encr/byte->encryptor  (get header 3))
+                    reader (-> rserializer rencryptor rcompressor)
+                    data (-deserialize reader read-handlers res)]
+                (async/put! res-ch (locked-cb (prep-stream data))))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
       res-ch))
@@ -178,7 +183,7 @@
               (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
               (.write vbaos ^byte (comp/compressor->byte compressor))
               (.write vbaos ^byte (encr/encryptor->byte encryptor))
-              (.write vbaos input 0 (count input)))  
+              (-serialize writer vbaos write-handlers input))  
             (if old-meta
               (io/update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
               (io/insert-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
