@@ -1,9 +1,9 @@
 (ns konserve-jdbc.core
   "Address globally aggregated immutable key-value conn(s)."
   (:require [clojure.core.async :as async]
-            [konserve.serializers :refer [byte->key byte->serializer serializer-class->byte key->serializer]]
-            [konserve.compressor :refer [byte->compressor compressor->byte lz4-compressor null-compressor]]
-            [konserve.encryptor :refer [encryptor->byte byte->encryptor null-encryptor]]
+            [konserve.serializers :as ser]
+            [konserve.compressor :as comp]
+            [konserve.encryptor :as encr]
             [hasch.core :as hasch]
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs]
@@ -20,7 +20,7 @@
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
-(def layout-byte 1)
+(def store-layout 1)
 (def serializer-byte 1)
 (def compressor-byte 0)
 (def encryptor-byte 0)
@@ -172,17 +172,22 @@
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+            (print "header" 
+              store-layout 
+              (ser/serializer-class->byte (type serializer))
+              (comp/compressor->byte compressor)
+              (encr/encryptor->byte encryptor))
             (when nmeta 
-              (.write mbaos ^byte (byte 1))
-              (.write mbaos ^byte (byte 1))
-              (.write mbaos ^byte (byte 0))
-              (.write mbaos ^byte (byte 0))
+              (.write mbaos ^byte (byte store-layout))
+              (.write mbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
+              (.write mbaos ^byte (byte (comp/compressor->byte compressor)))
+              (.write mbaos ^byte (byte (encr/encryptor->byte encryptor)))
               (-serialize writer mbaos write-handlers nmeta))
             (when nval 
-              (.write vbaos ^byte (byte 1))
-              (.write vbaos ^byte (byte 1))
-              (.write vbaos ^byte (byte 0))
-              (.write vbaos ^byte (byte 0))
+              (.write vbaos ^byte (byte store-layout))
+              (.write vbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
+              (.write vbaos ^byte (byte (comp/compressor->byte compressor)))
+              (.write vbaos ^byte (byte (encr/encryptor->byte encryptor)))
               (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
               (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
@@ -232,16 +237,16 @@
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
             (when new-meta 
-              (.write mbaos ^byte (byte 1))
-              (.write mbaos ^byte (byte 1))
-              (.write mbaos ^byte (byte 0))
-              (.write mbaos ^byte (byte 0))  
+              (.write mbaos ^byte (byte store-layout))
+              (.write mbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
+              (.write mbaos ^byte (byte (comp/compressor->byte compressor)))
+              (.write mbaos ^byte (byte (encr/encryptor->byte encryptor)))
               (-serialize writer mbaos write-handlers new-meta))
             (when input
-              (.write vbaos ^byte (byte 1))
-              (.write vbaos ^byte (byte 1))
-              (.write vbaos ^byte (byte 0))
-              (.write vbaos ^byte (byte 0))  
+              (.write vbaos ^byte (byte store-layout))
+              (.write vbaos ^byte (byte (ser/serializer-class->byte (type serializer))))
+              (.write vbaos ^byte (byte (comp/compressor->byte compressor)))
+              (.write vbaos ^byte (byte (encr/encryptor->byte encryptor)))
               (.write vbaos input 0 (count input)))  
             (if old-meta
               (update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
@@ -275,8 +280,8 @@
   ([db & {:keys [table default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
                          table "konserve"
-                         compressor lz4-compressor
-                         encryptor null-encryptor
+                         compressor comp/null-compressor
+                         encryptor encr/null-encryptor
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)
@@ -296,7 +301,7 @@
             (async/put! res-ch
               (map->JDBCStore { :conn {:db db :table table :ds datasource}
                                 :default-serializer default-serializer
-                                :serializers (merge key->serializer serializers)
+                                :serializers (merge ser/key->serializer serializers)
                                 :compressor compressor
                                 :encryptor encryptor
                                 :read-handlers read-handlers

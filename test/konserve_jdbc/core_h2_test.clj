@@ -199,12 +199,12 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/layout-byte) 
+      (is (= (byte kjc/store-layout) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec (nth 0) )))))
-      (is (= (byte kjc/layout-byte) 
+      (is (= (byte kjc/store-layout) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob data (:data res)]
