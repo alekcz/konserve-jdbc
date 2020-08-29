@@ -271,13 +271,16 @@
 
 (deftest exceptions-test
   (testing "Test exception handling"
-    (let [store (<!! (new-jdbc-store conn :table "test_exceptions"))
+    (let [_ (println "Generating exceptions")
+          store (<!! (new-jdbc-store conn :table "test_exceptions"))
           params (clojure.core/keys store)
           corruptor (fn [s k] 
                         (if (= (type (k s)) clojure.lang.Atom)
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
           corrupt (reduce corruptor store params)] ; let's corrupt our store
+      (delete-store store)          
+      (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions2"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
       (is (exception? (<!! (k/assoc corrupt :bad 10))))

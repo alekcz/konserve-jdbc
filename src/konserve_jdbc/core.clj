@@ -18,15 +18,15 @@
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
-(def store-version 1)
+(def layout 1)
 (def serializer 1)
 (def compressor 0)
 (def encryptor 0)
 
-(defn add-version [bytes]
+(defn add-header [bytes]
   (when (seq bytes) 
     (byte-array (into [] (concat 
-                            [(byte store-version) (byte serializer) (byte compressor) (byte encryptor)] 
+                            [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
                             (vec bytes))))))
 
 (defn extract-bytes [obj]
@@ -35,7 +35,7 @@
       (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
     :else obj))
 
-(defn strip-version [bytes-or-blob]
+(defn strip-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
     (let [bytes (extract-bytes bytes-or-blob)]
       (byte-array (->> bytes vec (split-at 4) second)))))
@@ -53,7 +53,7 @@
           data (:data res')
           meta (:meta res')
           res (if (and meta data)
-                [(strip-version meta) (strip-version data)]
+                [(strip-header meta) (strip-header data)]
                 [nil nil])]
       res)))
 
@@ -62,7 +62,7 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           data (:data res')
-          res (when data (strip-version data))]
+          res (when data (strip-header data))]
       res)))
 
 (defn get-meta 
@@ -70,23 +70,15 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           meta (:meta res')
-          res (when meta (strip-version meta))]
-      res)))
-
-(defn get-headers 
-  [conn id]
-  (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
-          meta (:meta res')
-          res (when meta (->> meta extract-bytes vec (split-at 4) first byte-array))]
+          res (when meta (strip-header meta))]
       res)))
 
 (defn update-it 
   [conn id data]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (with-open [ps (jdbc/prepare con [(str "update " (:table conn) " set meta = ?, data = ? where id = ?") 
-                                      (add-version (first data)) 
-                                      (add-version (second data)) 
+                                      (add-header (first data)) 
+                                      (add-header (second data)) 
                                       id])]
       (jdbc/execute-one! ps))))
 
@@ -95,8 +87,8 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (with-open [ps (jdbc/prepare con [(str "insert into " (:table conn) " (id,meta,data) values(?, ?, ?)")
                                       id
-                                      (add-version (first data)) 
-                                      (add-version (second data))])]
+                                      (add-header (first data)) 
+                                      (add-header (second data))])]
       (jdbc/execute-one! ps))))
 
 (defn delete-it 
@@ -107,7 +99,7 @@
   [conn]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-          res (doall (map #(strip-version (:meta %)) res'))]
+          res (doall (map #(strip-header (:meta %)) res'))]
       res)))
 
 
@@ -161,18 +153,6 @@
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
       res-ch))
-
-  ; (-get-version 
-  ;   [this key] 
-  ;   (let [res-ch (async/chan 1)]
-  ;     (async/thread
-  ;       (try
-  ;         (let [res (get-version conn (str-uuid key))]
-  ;           (if (some? res) 
-  ;             (async/put! res-ch res)
-  ;             (async/close! res-ch)))
-  ;         (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
-  ;     res-ch))
 
   (-update-in 
     [this key-vec meta-up-fn up-fn args]
@@ -265,13 +245,13 @@
                          serializer (ser/fressian-serializer)
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
-    (let [res-ch (async/chan 1)]                      
+    (let [res-ch (async/chan 1)
+          dbtype (or (:dbtype db) (:subprotocol db))]                      
       (async/thread 
         (try
-          (let [dbtype (or (:dbtype db) (:subprotocol db))
-                datasource (jdbc/get-datasource db)]
-            (when-not dbtype 
+          (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
+          (let [datasource (jdbc/get-datasource db)]
             (case dbtype
 
               "postgresql" 
