@@ -1,7 +1,9 @@
 (ns konserve-jdbc.core
   "Address globally aggregated immutable key-value conn(s)."
   (:require [clojure.core.async :as async]
-            [konserve.serializers :as ser]
+            [konserve.serializers :refer [byte->key byte->serializer serializer-class->byte key->serializer]]
+            [konserve.compressor :refer [byte->compressor compressor->byte lz4-compressor null-compressor]]
+            [konserve.encryptor :refer [encryptor->byte byte->encryptor null-encryptor]]
             [hasch.core :as hasch]
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs]
@@ -18,15 +20,15 @@
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
-(def layout 1)
-(def serializer 1)
-(def compressor 0)
-(def encryptor 0)
+(def layout-byte 1)
+(def serializer-byte 1)
+(def compressor-byte 0)
+(def encryptor-byte 0)
 
 (defn add-header [bytes]
   (when (seq bytes) 
     (byte-array (into [] (concat 
-                            [(byte layout) (byte serializer) (byte compressor) (byte encryptor)] 
+                            [(byte layout-byte) (byte serializer-byte) (byte compressor-byte) (byte encryptor-byte)] 
                             (vec bytes))))))
 
 (defn extract-bytes [obj]
@@ -117,7 +119,7 @@
   { :input-stream  (ByteArrayInputStream. bytes) 
     :size (count bytes)})
 
-(defrecord JDBCStore [conn serializer read-handlers write-handlers locks]
+(defrecord JDBCStore [conn default-serializer serializers compressor encryptor read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
   (-exists? 
     [this key] 
@@ -133,9 +135,11 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it-only conn (str-uuid key))]
+          (let [serializer (get serializers default-serializer)
+                reader (-> serializer identity)
+                res (get-it-only conn (str-uuid key))]
             (if (some? res) 
-              (let [data (-deserialize serializer read-handlers res)]
+              (let [data (-deserialize reader read-handlers res)]
                 (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
@@ -146,9 +150,11 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-meta conn (str-uuid key))]
+          (let [serializer (get serializers default-serializer)
+                reader (-> serializer identity)
+                res (get-meta conn (str-uuid key))]
             (if (some? res) 
-              (let [data (-deserialize serializer read-handlers res)] 
+              (let [data (-deserialize reader read-handlers res)] 
                 (async/put! res-ch data))
               (async/close! res-ch)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value metadata from store" e)))))
@@ -159,18 +165,21 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[fkey & rkey] key-vec
+          (let [serializer (get serializers default-serializer)
+                reader (-> serializer identity)
+                writer (-> serializer identity)
+                [fkey & rkey] key-vec
                 [ometa' oval'] (get-it conn (str-uuid fkey))
                 old-val [(when ometa'
-                          (-deserialize serializer read-handlers ometa'))
+                          (-deserialize reader read-handlers ometa'))
                          (when oval'
-                          (-deserialize serializer read-handlers oval'))]            
+                          (-deserialize reader read-handlers oval'))]            
                 [nmeta nval] [(meta-up-fn (first old-val)) 
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
                 ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
-            (when nmeta (-serialize serializer mbaos write-handlers nmeta))
-            (when nval (-serialize serializer vbaos write-handlers nval))    
+            (when nmeta (-serialize writer mbaos write-handlers nmeta))
+            (when nval (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
               (update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
               (insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
@@ -196,7 +205,9 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (get-it-only conn (str-uuid key))]
+          (let [serializer (get serializers default-serializer)
+                reader (-> serializer identity)
+                res (get-it-only conn (str-uuid key))]
             (if (some? res) 
               (async/put! res-ch (locked-cb (prep-stream res)))
               (async/close! res-ch)))
@@ -208,11 +219,14 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[old-meta' old-val] (get-it conn (str-uuid key))
-                old-meta (when old-meta' (-deserialize serializer read-handlers old-meta'))           
+          (let [serializer (get serializers default-serializer)
+                reader (-> serializer identity)
+                writer (-> serializer identity)
+                [old-meta' old-val] (get-it conn (str-uuid key))
+                old-meta (when old-meta' (-deserialize reader read-handlers old-meta'))           
                 new-meta (meta-up-fn old-meta) 
                 ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)]
-            (when new-meta (-serialize serializer mbaos write-handlers new-meta))
+            (when new-meta (-serialize writer mbaos write-handlers new-meta))
             (if old-meta
               (update-it conn (str-uuid key) [(.toByteArray mbaos) input])
               (insert-it conn (str-uuid key) [(.toByteArray mbaos) input]))
@@ -226,11 +240,13 @@
     (let [res-ch (async/chan)]
       (async/thread
         (try
-          (let [key-stream (get-keys conn)
+          (let [serializer (get serializers default-serializer)
+                reader (-> serializer identity)
+                key-stream (get-keys conn)
                 keys' (when key-stream
                         (for [k key-stream]
                           (let [bais (ByteArrayInputStream. k)]
-                            (-deserialize serializer read-handlers bais))))
+                            (-deserialize reader read-handlers bais))))
                 keys (doall (map :key keys'))]
             (doall
               (map #(async/put! res-ch %) keys))
@@ -240,9 +256,11 @@
 
 
 (defn new-jdbc-store
-  ([db & {:keys [table serializer read-handlers write-handlers]
-                    :or {table "konserve"
-                         serializer (ser/fressian-serializer)
+  ([db & {:keys [table default-serializer serializers compressor encryptor read-handlers write-handlers]
+                    :or {default-serializer :FressianSerializer
+                         table "konserve"
+                         compressor lz4-compressor
+                         encryptor null-encryptor
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)
@@ -261,9 +279,12 @@
             
             (async/put! res-ch
               (map->JDBCStore { :conn {:db db :table table :ds datasource}
+                                :default-serializer default-serializer
+                                :serializers (merge key->serializer serializers)
+                                :compressor compressor
+                                :encryptor encryptor
                                 :read-handlers read-handlers
                                 :write-handlers write-handlers
-                                :serializer serializer
                                 :locks (atom {})})))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
       res-ch)))

@@ -192,19 +192,19 @@
                                            sevens)))))
       (delete-store store))))  
 
-(deftest version-test
-  (testing "Test check for store version being store with data"
-    (let [_ (println "Checking if store version is stored")
-          store (<!! (new-jdbc-store conn :table "test_version"))
+(deftest layout-test
+  (testing "Test check for store layout being store with data"
+    (let [_ (println "Checking if store layout is stored")
+          store (<!! (new-jdbc-store conn :table "test_layout"))
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/layout) 
+      (is (= (byte kjc/layout-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec (nth 0) )))))
-      (is (= (byte kjc/layout) 
+      (is (= (byte kjc/layout-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob data (:data res)]
@@ -218,12 +218,12 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/serializer) 
+      (is (= (byte kjc/serializer-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec (nth 1) )))))
-      (is (= (byte kjc/serializer) 
+      (is (= (byte kjc/serializer-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob data (:data res)]
@@ -237,12 +237,12 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/compressor) 
+      (is (= (byte kjc/compressor-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec (nth 2) )))))
-      (is (= (byte kjc/compressor) 
+      (is (= (byte kjc/compressor-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob data (:data res)]
@@ -256,12 +256,12 @@
           id (str (hasch/uuid :foo))]
       (<!! (k/assoc store :foo :bar))
       (is (= :bar (<!! (k/get store :foo))))
-      (is (= (byte kjc/encryptor) 
+      (is (= (byte kjc/encryptor-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,meta from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob meta (:meta res)]
                   (-> (.getBytes meta 0 (.length meta)) vec (nth 3) )))))
-      (is (= (byte kjc/encryptor) 
+      (is (= (byte kjc/encryptor-byte) 
              (j/with-db-connection [db (-> store :conn :db)]
                 (let [res (first (j/query db [(str "select id,data from " (-> store :conn :table) " where id = '" id "'")]))
                       ^Blob data (:data res)]
