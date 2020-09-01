@@ -4,7 +4,7 @@ A [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://gi
 
 ## Status
 
-![master](https://github.com/alekcz/konserve-jdbc/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-jdbc/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-jdbc) 
+![master](https://github.com/alekcz/konserve-jdbc/workflows/master/badge.svg) [![codecov](https://codecov.io/gh/alekcz/konserve-jdbc/branch/master/graph/badge.svg)](https://codecov.io/gh/alekcz/konserve-jdbc) [![Dependencies Status](https://versions.deps.co/alekcz/konserve-jdbc/status.svg)](https://versions.deps.co/alekcz/konserve-jdbc)
 
 ## Usage
 
