@@ -6,8 +6,7 @@
   :aot :all
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [com.h2database/h2 "1.4.200"]
-                 [org.clojure/java.jdbc "0.7.11"]
-                 [seancorfield/next.jdbc "1.1.569"]
+                 [seancorfield/next.jdbc "1.1.582"]
                  [org.apache.derby/derby "10.14.2.0"]
                  [mysql/mysql-connector-java "8.0.20"]
                  [org.postgresql/postgresql "42.2.12"]
