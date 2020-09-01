@@ -232,7 +232,6 @@
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
           corrupt (reduce corruptor store params)] ; let's corrupt our store
-      (delete-store store)          
       (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions2"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
@@ -247,4 +246,5 @@
       (is (exception? (<!! (kl/-get-raw-value corrupt :bad))))
       (is (exception? (<!! (kl/-put-raw-value corrupt :bad (byte-array (range 10))))))
       (is (exception? (<!! (kl/-get-raw-meta corrupt :bad))))
-      (is (exception? (<!! (kl/-put-raw-meta corrupt :bad (byte-array (range 10)))))))))
+      (is (exception? (<!! (kl/-put-raw-meta corrupt :bad (byte-array (range 10))))))
+      (is (exception? (<!! (delete-store corrupt)))))))

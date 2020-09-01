@@ -246,4 +246,5 @@
       (is (exception? (<!! (k/exists? corrupt :bad))))
       (is (exception? (<!! (k/keys corrupt))))
       (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
-      (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10)))))))))
+      (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10))))))
+      (is (exception? (<!! (delete-store corrupt)))))))
