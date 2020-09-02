@@ -1,4 +1,4 @@
-(defproject alekcz/konserve-jdbc "0.1.3"
+(defproject alekcz/konserve-jdbc "0.1.0-SNAPSHOT"
   :description "A generic JDBC backend for konserve."
   :url "https://github.com/alekcz/konserve-jdbc"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
