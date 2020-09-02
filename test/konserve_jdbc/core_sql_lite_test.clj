@@ -1,4 +1,4 @@
-(ns konserve-jdbc.core-h2-test
+(ns konserve-jdbc.core-sql-lite-test
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
@@ -24,17 +24,15 @@
     (func func (io/file fname))))
 
 (defn my-test-fixture [f]
-  (.mkdirs (java.io.File. "./temph2"))
+  (.mkdirs (java.io.File. "./tempsql"))
   (f)
-  (delete-recursively "./temph2"))
+  (delete-recursively "./tempsql"))
 
 (use-fixtures :once my-test-fixture)
 
 (def conn 
-  { :dbtype "h2"
-    :dbname "./temph2/konserve;DB_CLOSE_ON_EXIT=FALSE"
-    :user "sa"
-    :password ""
+  { :dbtype "sqlite"
+    :dbname "./tempsql/konserve"
    })
 
 (deftest get-nil-test

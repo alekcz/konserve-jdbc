@@ -3,19 +3,19 @@
   (:require [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs])
   (:import  [java.io ByteArrayInputStream]
-            [org.h2.jdbc JdbcBlob]))
+            [java.sql Blob]))
 
 (set! *warn-on-reflection* 1)
 
-(defn extract-bytes [obj]
+(defn extract-bytes [obj dbtype]
   (cond
-    (= org.h2.jdbc.JdbcBlob (type obj))
-      (.getBytes ^JdbcBlob obj 0 (.length ^JdbcBlob obj))
-    :else obj))
+    (= "h2" dbtype)
+      (.getBytes ^Blob obj 0 (.length ^Blob obj))
+      :else obj))
 
-(defn split-header [bytes-or-blob]
+(defn split-header [bytes-or-blob dbtype]
   (when (some? bytes-or-blob) 
-    (let [bytes (extract-bytes bytes-or-blob)
+    (let [bytes (extract-bytes bytes-or-blob dbtype)
           data  (->> bytes vec (split-at 4))
           streamer (fn [header data] (list (byte-array header) (-> data byte-array (ByteArrayInputStream.))))]
       (apply streamer data))))
@@ -34,7 +34,7 @@
           data (:data res')
           meta (:meta res')
           res (if (and meta data)
-                [(split-header meta) (split-header data)]
+                [(split-header meta (-> conn :db :dbtype)) (split-header data  (-> conn :db :dbtype))]
                 [nil nil])]
       res)))
 
@@ -43,7 +43,7 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           data (:data res')
-          res (when data (split-header data))]
+          res (when data (split-header data  (-> conn :db :dbtype)))]
       res)))
 
 (defn get-meta 
@@ -51,7 +51,7 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           meta (:meta res')
-          res (when meta (split-header meta))]
+          res (when meta (split-header meta  (-> conn :db :dbtype)))]
       res)))
 
 (defn update-it 
@@ -80,7 +80,7 @@
   [conn]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-          res (doall (map #(split-header (:meta %)) res'))]
+          res (doall (map #(split-header (:meta %) (-> conn :db :dbtype)) res'))]
       res)))
 
 (defn raw-get-it-only
@@ -88,14 +88,14 @@
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           data (:data res')]
-      (extract-bytes data))))
+      (extract-bytes data  (-> conn :db :dbtype)))))
 
 (defn raw-get-meta 
   [conn id]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (first (jdbc/execute! con [(str "select id,meta from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           meta (:meta res')]
-      (extract-bytes meta))))
+      (extract-bytes meta (-> conn :db :dbtype)))))
 
 (defn raw-update-it-only 
   [conn id blob]
