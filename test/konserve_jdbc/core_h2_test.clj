@@ -24,9 +24,9 @@
     (func func (io/file fname))))
 
 (defn my-test-fixture [f]
-  (.mkdirs (java.io.File. "./temph2"))
+  (.mkdirs (java.io.File. "./temp/h2"))
   (f)
-  (delete-recursively "./temph2"))
+  (delete-recursively "./temp/h2"))
 
 (use-fixtures :once my-test-fixture)
 

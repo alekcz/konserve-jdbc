@@ -24,15 +24,15 @@
     (func func (io/file fname))))
 
 (defn my-test-fixture [f]
-  (.mkdirs (java.io.File. "./tempsql"))
+  (.mkdirs (java.io.File. "./temp/sql"))
   (f)
-  (delete-recursively "./tempsql"))
+  (delete-recursively "./temp/sql"))
 
 (use-fixtures :once my-test-fixture)
 
 (def conn 
   { :dbtype "sqlite"
-    :dbname "./tempsql/konserve"
+    :dbname "./temp/sql/konserve"
    })
 
 (deftest get-nil-test
