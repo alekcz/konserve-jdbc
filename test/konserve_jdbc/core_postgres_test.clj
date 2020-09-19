@@ -16,10 +16,7 @@
 (deftype UnknownType [])
 
 (defn exception? [thing]
-  (let [ex (type thing)]
-    (or (= clojure.lang.ExceptionInfo ex) 
-        (= java.lang.Exception ex) 
-        (= java.lang.Throwable ex))))
+  (instance? Throwable thing))
 
 (defn reset-db [f]
   (f)
@@ -201,10 +198,12 @@
       (<!! (k/assoc store :eye :ear))
       (let [mraw (<!! (kl/-get-raw-meta store :foo))
             mraw2 (<!! (kl/-get-raw-meta store :eye))
+            mraw3 (<!! (kl/-get-raw-meta store :not-there))
             header (take 4 (map byte mraw))]
         (<!! (kl/-put-raw-meta store :foo mraw2))
         (<!! (kl/-put-raw-meta store :baritone mraw2))
         (is (= header [1 1 1 0]))
+        (is (nil? mraw3))
         (is (= :eye (:key (<!! (k/get-meta store :foo)))))
         (is (= :eye (:key (<!! (k/get-meta store :baritone))))))        
       (delete-store store))))          
@@ -215,15 +214,17 @@
           store (<!! (new-jdbc-store conn :table "test_values"))]
       (<!! (k/assoc store :foo :bar))
       (<!! (k/assoc store :eye :ear))
-      (let [mvalue (<!! (kl/-get-raw-value store :foo))
-            mvalue2 (<!! (kl/-get-raw-value store :eye))
-            header (take 4 (map byte mvalue))]
-        (<!! (kl/-put-raw-value store :foo mvalue2))
-        (<!! (kl/-put-raw-value store :baritone mvalue2))
+      (let [vraw (<!! (kl/-get-raw-value store :foo))
+            vraw2 (<!! (kl/-get-raw-value store :eye))
+            vraw3 (<!! (kl/-get-raw-value store :not-there))
+            header (take 4 (map byte vraw))]
+        (<!! (kl/-put-raw-value store :foo vraw2))
+        (<!! (kl/-put-raw-value store :baritone vraw2))
         (is (= header [1 1 1 0]))
+        (is (nil? vraw3))
         (is (= :ear (<!! (k/get store :foo))))
         (is (= :ear (<!! (k/get store :baritone)))))      
-      (delete-store store)))) 
+      (delete-store store))))   
 
 (deftest exceptions-test
   (testing "Test exception handling"

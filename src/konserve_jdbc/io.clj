@@ -8,10 +8,11 @@
 (set! *warn-on-reflection* 1)
 
 (defn extract-bytes [obj dbtype]
-  (cond
-    (= "h2" dbtype)
-      (.getBytes ^Blob obj 0 (.length ^Blob obj))
-      :else obj))
+  (when obj
+    (cond
+      (= "h2" dbtype)
+        (.getBytes ^Blob obj 0 (.length ^Blob obj))
+        :else obj)))
 
 (defn split-header [bytes-or-blob dbtype]
   (when (some? bytes-or-blob) 
