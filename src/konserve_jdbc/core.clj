@@ -15,7 +15,7 @@
                                         -serialize -deserialize
                                         PKeyIterable
                                         -keys]]
-            [konserve.storage-layout :refer [Layout2]])
+            [konserve.storage-layout :refer [SplitLayout]])
   (:import  [java.io ByteArrayOutputStream]))
 
 (set! *warn-on-reflection* 1)
@@ -212,13 +212,12 @@
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
         res-ch))
         
-  Layout2      
+  SplitLayout      
   (-get-raw-meta [this key]
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
           (let [res (io/raw-get-meta conn (str-uuid key))]
-            (println res)
             (if res
               (async/put! res-ch res)
               (async/close! res-ch)))
@@ -239,7 +238,6 @@
       (async/thread
         (try
           (let [res (io/raw-get-it-only conn (str-uuid key))]
-            (println res)
             (if res
               (async/put! res-ch res)
               (async/close! res-ch)))

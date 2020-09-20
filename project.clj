@@ -11,7 +11,7 @@
                  [mysql/mysql-connector-java "8.0.20"]
                  [org.postgresql/postgresql "42.2.12"]
                  [org.xerial/sqlite-jdbc "3.23.1"]
-                 [io.replikativ/konserve "0.6.0-20200822.075021-4"]]
+                 [io.replikativ/konserve "0.6.0-alpha1"]]
   :repl-options {:init-ns konserve-jdbc.core}
   :plugins [[lein-cloverage "1.2.0"]]
   :profiles { :dev {:dependencies [[metosin/malli "0.0.1-20200404.091302-14"]]}})
