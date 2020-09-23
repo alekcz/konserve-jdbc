@@ -96,8 +96,8 @@
                               (-deserialize reader read-handlers ometa')))
                          (when oval'
                             (let [vserializer (ser/byte->serializer  (get vheader 1))
-                                  vcompressor (comp/byte->compressor (get mheader 2))
-                                  vencryptor  (encr/byte->encryptor  (get mheader 3))
+                                  vcompressor (comp/byte->compressor (get vheader 2))
+                                  vencryptor  (encr/byte->encryptor  (get vheader 3))
                                   reader (-> vserializer vencryptor vcompressor)]
                               (-deserialize reader read-handlers oval')))]            
                 [nmeta nval] [(meta-up-fn (first old-val)) 
