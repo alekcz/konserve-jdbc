@@ -28,11 +28,12 @@ services:
     restart: always
     environment:
       ACCEPT_EULA: Y
-      SA_PASSWORD: password
+      SA_PASSWORD: passwordA1!
       MSSQL_PID: Developer
       MYSQL_DATABASE: konserve
       MYSQL_USER: konserve
       MYSQL_PASSWORD: password
+      MSSQL_TCP_PORT: 1433
     ports:
       - 1433:1433
     

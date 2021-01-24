@@ -13,7 +13,7 @@
     :dbname "tempdb"
     :host "localhost"
     :user "sa"
-    :password "password"
+    :password "passwordA1!"
    })
 
 (def conn2 
@@ -21,7 +21,7 @@
     :dbname "tempdb"
     :host "localhost"
     :user "sa"
-    :password "password"
+    :password "passwordA1!"
    })   
 
 (deftype UnknownType [])
