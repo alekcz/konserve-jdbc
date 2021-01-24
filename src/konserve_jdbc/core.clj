@@ -19,7 +19,7 @@
   (:import  [java.io ByteArrayOutputStream]))
 
 (set! *warn-on-reflection* 1)
-(def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
+(def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver" "mssql"])
 (def store-layout 1)
 
 (defn str-uuid 
