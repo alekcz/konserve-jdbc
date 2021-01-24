@@ -6,7 +6,7 @@
   :aot :all
   :dependencies [[org.clojure/clojure "1.10.2-alpha1"]
                  [com.h2database/h2 "1.4.200"]
-                 [seancorfield/next.jdbc "1.1.588"]
+                 [seancorfield/next.jdbc "1.1.613"]
                  [org.apache.derby/derby "10.14.2.0"]
                  [mysql/mysql-connector-java "8.0.20"]
                  [org.postgresql/postgresql "42.2.12"]
@@ -14,5 +14,5 @@
                  [io.replikativ/konserve "0.6.0-alpha1"]
                  [com.microsoft.sqlserver/mssql-jdbc "9.1.1.jre8-preview"]]
   :repl-options {:init-ns konserve-jdbc.core}
-  :plugins [[lein-cloverage "1.2.0"]]
-  :profiles { :dev {:dependencies [[metosin/malli "0.0.1-20200404.091302-14"]]}})
+  :plugins [[lein-cloverage "1.2.2"]]
+  :profiles { :dev {:dependencies [[metosin/malli "0.2.1"]]}})
