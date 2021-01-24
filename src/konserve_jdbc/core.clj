@@ -19,7 +19,7 @@
   (:import  [java.io ByteArrayOutputStream]))
 
 (set! *warn-on-reflection* 1)
-(def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver"])
+(def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver" "mssql"])
 (def store-layout 1)
 
 (defn str-uuid 
@@ -274,6 +274,9 @@
 
               "postgresql" 
                 (jdbc/execute! datasource [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+
+              ("mssql" "sqlserver")
+                (jdbc/execute! datasource [(str "IF OBJECT_ID(N'dbo." table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
             
                 (jdbc/execute! datasource [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")]))
             

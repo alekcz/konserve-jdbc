@@ -23,4 +23,17 @@ services:
     ports:
       - "5432:5432"
 
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    restart: always
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: passwordA1!
+      MSSQL_PID: Developer
+      MYSQL_DATABASE: konserve
+      MYSQL_USER: konserve
+      MYSQL_PASSWORD: password
+      MSSQL_TCP_PORT: 1433
+    ports:
+      - 1433:1433
     
