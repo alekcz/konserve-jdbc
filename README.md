@@ -38,15 +38,18 @@ A [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://gi
   (def mysql-store (<!! (new-jdbc-store mysql :table "konserve")))
   (def pg-store (<!! (new-jdbc-store pg :table "konserve")))
 
-  (<!! (k/exists? pg-store  "cecilia"))
-  (<!! (k/get-in pg-store ["cecilia"]))
-  (<!! (k/assoc-in pg-store ["cecilia"] 28))
-  (<!! (k/update-in pg-store ["cecilia"] inc))
-  (<!! (k/get-in pg-store ["cecilia"]))
+  (<!! (k/exists? pg-store :cecilia)) ; => false
+  (<!! (k/get-in pg-store [:cecilia])) ; => nil
+  (<!! (k/assoc pg-store :cecilia {:name "cecilia"})) 
+  (<!! (k/assoc-in pg-store [:cecilia :age] 28))
+  (<!! (k/get-in pg-store [:cecilia :age])) ; => 28
+  (<!! (k/update-in pg-store [:cecilia :age] inc))
+  (<!! (k/get pg-store :cecilia)) ; => {:name "cecilia", :age 29}
+
 
   (defrecord Test [a])
-  (<!! (k/assoc-in pg-store ["agatha"] (Test. 35)))
-  (<!! (k/get-in pg-store ["agatha"]))
+  (<!! (k/assoc pg-store :agatha (Test. 35)))
+  (<!! (k/get pg-store :agatha))
 ```
 
 ## License
