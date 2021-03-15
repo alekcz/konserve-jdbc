@@ -14,7 +14,7 @@ services:
       - 3306:3306
 
   postgres:
-    image: postgres:12.3
+    image: postgres:13.2
     restart: always
     environment:
       POSTGRES_DB: konserve
