@@ -12,6 +12,7 @@
                  [org.xerial/sqlite-jdbc "3.23.1"]
                  [io.replikativ/konserve "0.6.0-alpha3"]
                  [com.microsoft.sqlserver/mssql-jdbc "9.1.1.jre8-preview"]]
+  :javac-options ["--release" "8" "-g"]
   :repl-options {:init-ns konserve-jdbc.core}
   :plugins [[lein-cloverage "1.2.4"]]
   :profiles { :dev {:dependencies [[metosin/malli "0.5.1"]]}})
