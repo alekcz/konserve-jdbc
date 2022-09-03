@@ -15,7 +15,5 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  
       run: |
-        docker-compose up -d
-        lein cloverage --codecov
+        bash test.sh
         bash <(curl -s https://codecov.io/bash)
-        docker-compose down

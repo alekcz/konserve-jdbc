@@ -16,7 +16,6 @@ jobs:
     - uses: actions/checkout@v2
     - name: Run tests
       run: |
-        docker-compose up -d
-        lein cloverage --codecov
-        docker-compose down
+        bash test.sh
+
 
