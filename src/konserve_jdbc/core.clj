@@ -270,7 +270,8 @@
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)
-          dbtype (or (:dbtype db) (:subprotocol db))]                      
+          dbtype (or (:dbtype db) (:subprotocol db))
+          final-table (or (:table db) table)]                      
       (async/thread 
         (try
           (when-not dbtype 
@@ -279,15 +280,15 @@
             (case dbtype
 
               "postgresql" 
-                (jdbc/execute! datasource [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+                (jdbc/execute! datasource [(str "create table if not exists " final-table " (id varchar(100) primary key, meta bytea, data bytea)")])
 
               ("mssql" "sqlserver")
-                (jdbc/execute! datasource [(str "IF OBJECT_ID(N'dbo." table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
+                (jdbc/execute! datasource [(str "IF OBJECT_ID(N'dbo." final-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." final-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
             
-                (jdbc/execute! datasource [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")]))
+                (jdbc/execute! datasource [(str "create table if not exists " final-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
             
             (async/put! res-ch
-              (map->JDBCStore { :conn {:db db :table table :ds datasource}
+              (map->JDBCStore { :conn {:db db :table final-table :ds datasource}
                                 :default-serializer default-serializer
                                 :serializers (merge ser/key->serializer serializers)
                                 :compressor compressor

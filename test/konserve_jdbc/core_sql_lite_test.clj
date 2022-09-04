@@ -49,7 +49,7 @@
 (deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-jdbc-store conn :table "test_write"))]
+          store (<!! (new-jdbc-store (assoc conn :table "test_write")))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))
