@@ -313,7 +313,6 @@
         (finally (async/close! res-ch))))          
     res-ch))
 
-
 (defn delete-store [jdbc-store]
   (let [res-ch (async/chan 1)]
     (async/thread

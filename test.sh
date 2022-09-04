@@ -1,3 +1,3 @@
 docker-compose up -d
-lein test :only konserve-jdbc.core-postgres-test
+lein cloverage
 docker-compose down

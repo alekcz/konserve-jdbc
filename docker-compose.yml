@@ -1,17 +1,17 @@
 version: '3.3'
 
 services:
-  # mysql:
-  #   image: mysql:5.7
-  #   restart: always
-  #   command: --max_allowed_packet=32505856 
-  #   environment:
-  #     MYSQL_ROOT_PASSWORD: password
-  #     MYSQL_DATABASE: konserve
-  #     MYSQL_USER: konserve
-  #     MYSQL_PASSWORD: password
-  #   ports:
-  #     - 3306:3306
+  mysql:
+    image: mysql:5.7
+    restart: always
+    command: --max_allowed_packet=32505856 
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: konserve
+      MYSQL_USER: konserve
+      MYSQL_PASSWORD: password
+    ports:
+      - 3306:3306
 
   postgres:
     image: postgres:13.2
@@ -23,17 +23,17 @@ services:
     ports:
       - "5432:5432"
 
-  # mssql:
-  #   image: mcr.microsoft.com/mssql/server:2019-latest
-  #   restart: always
-  #   environment:
-  #     ACCEPT_EULA: Y
-  #     SA_PASSWORD: passwordA1!
-  #     MSSQL_PID: Developer
-  #     MYSQL_DATABASE: konserve
-  #     MYSQL_USER: konserve
-  #     MYSQL_PASSWORD: password
-  #     MSSQL_TCP_PORT: 1433
-  #   ports:
-  #     - 1433:1433
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    restart: always
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: passwordA1!
+      MSSQL_PID: Developer
+      MYSQL_DATABASE: konserve
+      MYSQL_USER: konserve
+      MYSQL_PASSWORD: password
+      MSSQL_TCP_PORT: 1433
+    ports:
+      - 1433:1433
     
