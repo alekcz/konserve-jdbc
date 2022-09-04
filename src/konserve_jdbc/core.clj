@@ -28,7 +28,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
-  ; (.printStackTrace e)
+  (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -270,13 +270,13 @@
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)
-          dbtype (or (:dbtype db) (:subprotocol db))
-          final-table (or (:table db) table)]                      
+          dbtype (or (:dbtype db) (:subprotocol db))]                      
       (async/thread 
         (try
           (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
-          (let [datasource (jdbc/get-datasource db)]
+          (let [datasource (jdbc/get-datasource db)
+                final-table (str "konserve_" (or (:table db) table))]
             (case dbtype
 
               "postgresql" 
