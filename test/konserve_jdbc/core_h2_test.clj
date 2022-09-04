@@ -38,7 +38,7 @@
 (deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-jdbc-store conn :table "nil"))]
+          store (<!! (new-jdbc-store conn :table "user@name"))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
@@ -50,7 +50,7 @@
 (deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-jdbc-store (assoc conn :table "test_write")))]
+          store (<!! (new-jdbc-store (assoc conn :table "test!write")))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))

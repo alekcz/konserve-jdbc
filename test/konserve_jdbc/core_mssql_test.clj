@@ -32,25 +32,25 @@
 (defn reset-db [f]
   (f)
   (with-open [con (jdbc/get-connection conn)]
-    (jdbc/execute! con ["drop table if exists nil"])
-    (jdbc/execute! con ["drop table if exists test_write"])
-    (jdbc/execute! con ["drop table if exists test_update"])
-    (jdbc/execute! con ["drop table if exists test_exists"])
-    (jdbc/execute! con ["drop table if exists test_binary"])
-    (jdbc/execute! con ["drop table if exists test_key"])
-    (jdbc/execute! con ["drop table if exists test_append"])
-    (jdbc/execute! con ["drop table if exists test_realistic"])
-    (jdbc/execute! con ["drop table if exists test_bulk"])
-    (jdbc/execute! con ["drop table if exists test_headers"])
-    (jdbc/execute! con ["drop table if exists test_values"])
-    (jdbc/execute! con ["drop table if exists test_exceptions"])))
+    (jdbc/execute! con ["drop table if exists konserve__user"])
+    (jdbc/execute! con ["drop table if exists konserve_test_write"])
+    (jdbc/execute! con ["drop table if exists konserve_test_update"])
+    (jdbc/execute! con ["drop table if exists konserve_test_exists"])
+    (jdbc/execute! con ["drop table if exists konserve_test_binary"])
+    (jdbc/execute! con ["drop table if exists konserve_test_key"])
+    (jdbc/execute! con ["drop table if exists konserve_test_append"])
+    (jdbc/execute! con ["drop table if exists konserve_test_realistic"])
+    (jdbc/execute! con ["drop table if exists konserve_test_bulk"])
+    (jdbc/execute! con ["drop table if exists konserve_test_headers"])
+    (jdbc/execute! con ["drop table if exists konserve_test_values"])
+    (jdbc/execute! con ["drop table if exists konserve_test_exceptions"])))
 
 (use-fixtures :once reset-db)
 
 (deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-jdbc-store conn :table "nil"))]
+          store (<!! (new-jdbc-store conn :table "@user"))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))

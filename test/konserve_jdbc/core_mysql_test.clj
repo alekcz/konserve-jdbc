@@ -24,25 +24,25 @@
 (defn reset-db [f]
   (f)
   (with-open [con (jdbc/get-connection conn)]
-    (jdbc/execute! con ["drop table if exists nil"])
-    (jdbc/execute! con ["drop table if exists test_write"])
-    (jdbc/execute! con ["drop table if exists test_update"])
-    (jdbc/execute! con ["drop table if exists test_exists"])
-    (jdbc/execute! con ["drop table if exists test_binary"])
-    (jdbc/execute! con ["drop table if exists test_key"])
-    (jdbc/execute! con ["drop table if exists test_append"])
-    (jdbc/execute! con ["drop table if exists test_realistic"])
-    (jdbc/execute! con ["drop table if exists test_bulk"])
-    (jdbc/execute! con ["drop table if exists test_headers"])
-    (jdbc/execute! con ["drop table if exists test_values"])
-    (jdbc/execute! con ["drop table if exists test_exceptions"])))
+    (jdbc/execute! con ["drop table if exists konserve_DATABASE"])
+    (jdbc/execute! con ["drop table if exists konserve_test_write"])
+    (jdbc/execute! con ["drop table if exists konserve_test_update"])
+    (jdbc/execute! con ["drop table if exists konserve_test_exists"])
+    (jdbc/execute! con ["drop table if exists konserve_test_binary"])
+    (jdbc/execute! con ["drop table if exists konserve_test_key"])
+    (jdbc/execute! con ["drop table if exists konserve_test_append"])
+    (jdbc/execute! con ["drop table if exists konserve_test_realistic"])
+    (jdbc/execute! con ["drop table if exists konserve_test_bulk"])
+    (jdbc/execute! con ["drop table if exists konserve_test_headers"])
+    (jdbc/execute! con ["drop table if exists konserve_test_values"])
+    (jdbc/execute! con ["drop table if exists konserve_test_exceptions"])))
 
 (use-fixtures :once reset-db)
 
 (deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-jdbc-store conn :table "nil"))]
+          store (<!! (new-jdbc-store conn :table "DATABASE"))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
@@ -53,7 +53,7 @@
 (deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-jdbc-store (assoc conn :table "test_write")))]
+          store (<!! (new-jdbc-store (assoc conn :table "test-write")))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))

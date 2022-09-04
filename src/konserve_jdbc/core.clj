@@ -7,6 +7,7 @@
             [hasch.core :as hasch]
             [konserve-jdbc.io :as io]
             [next.jdbc :as jdbc]
+            [clojure.string :as str]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
                                         -update-in -assoc-in -dissoc
@@ -28,7 +29,7 @@
 
 (defn prep-ex 
   [^String message ^Exception e]
-  (.printStackTrace e)
+  ;; (.printStackTrace e)
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -270,25 +271,26 @@
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
     (let [res-ch (async/chan 1)
-          dbtype (or (:dbtype db) (:subprotocol db))]                      
+          dbtype (or (:dbtype db) (:subprotocol db))
+          final-table (str "konserve_" (or (:table db) table))
+          clean-table (str/replace final-table #"[^0-9a-zA-Z:_]+" "_")]                      
       (async/thread 
         (try
           (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
-          (let [datasource (jdbc/get-datasource db)
-                final-table (str "konserve_" (or (:table db) table))]
+          (let [datasource (jdbc/get-datasource db)]
             (case dbtype
 
               "postgresql" 
-                (jdbc/execute! datasource [(str "create table if not exists " final-table " (id varchar(100) primary key, meta bytea, data bytea)")])
+                (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
 
               ("mssql" "sqlserver")
-                (jdbc/execute! datasource [(str "IF OBJECT_ID(N'dbo." final-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." final-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
+                (jdbc/execute! datasource [(str "IF OBJECT_ID(N'dbo." clean-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." clean-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
             
-                (jdbc/execute! datasource [(str "create table if not exists " final-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
+                (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
             
             (async/put! res-ch
-              (map->JDBCStore { :conn {:db db :table final-table :ds datasource}
+              (map->JDBCStore { :conn {:db db :table clean-table :ds datasource}
                                 :default-serializer default-serializer
                                 :serializers (merge ser/key->serializer serializers)
                                 :compressor compressor
