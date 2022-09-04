@@ -37,14 +37,14 @@
   { :input-stream stream
     :size nil})
 
-(defrecord JDBCStore [conn default-serializer serializers compressor encryptor read-handlers write-handlers locks]
+(defrecord JDBCStore [store default-serializer serializers compressor encryptor read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
   (-exists? 
     [_this key] 
       (let [res-ch (async/chan 1)]
         (async/thread
           (try
-            (async/put! res-ch (io/it-exists? conn (str-uuid key)))
+            (async/put! res-ch (io/it-exists? store (str-uuid key)))
             (catch Exception e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))
             (finally (async/close! res-ch))))
         res-ch))
@@ -54,7 +54,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (io/get-it-only conn (str-uuid key))]
+          (let [[header res] (io/get-it-only store (str-uuid key))]
             (when (some? res) 
               (let [rserializer (ser/byte->serializer (get header 1))
                     rcompressor (comp/byte->compressor (get header 2))
@@ -71,7 +71,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (io/get-meta conn (str-uuid key))]
+          (let [[header res] (io/get-meta store (str-uuid key))]
             (if (some? res) 
               (let [rserializer (ser/byte->serializer (get header 1))
                     rcompressor (comp/byte->compressor (get header 2))
@@ -89,7 +89,7 @@
       (async/thread
         (try
           (let [[fkey & rkey] key-vec
-                [[mheader ometa'] [vheader oval']] (io/get-it conn (str-uuid fkey))
+                [[mheader ometa'] [vheader oval']] (io/get-it store (str-uuid fkey))
                 old-val [(when ometa'
                             (let [mserializer (ser/byte->serializer  (get mheader 1))
                                   mcompressor (comp/byte->compressor (get mheader 2))
@@ -121,8 +121,8 @@
               (.write vbaos ^byte (encr/encryptor->byte encryptor))
               (-serialize writer vbaos write-handlers nval))    
             (if (first old-val)
-              (io/update-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
-              (io/insert-it conn (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
+              (io/update-it store (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (io/insert-it store (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [(second old-val) nval]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))
           (finally (async/close! res-ch))))
@@ -135,7 +135,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (io/delete-it conn (str-uuid key))
+          (io/delete-it store (str-uuid key))
           (async/close! res-ch)
           (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))
           (finally (async/close! res-ch))))
@@ -147,7 +147,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[header res] (io/get-it-only conn (str-uuid key))]
+          (let [[header res] (io/get-it-only store (str-uuid key))]
             (when (some? res) 
               (let [rserializer (ser/byte->serializer (get header 1))
                     rcompressor (comp/byte->compressor (get header 2))
@@ -164,7 +164,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [[[mheader old-meta'] [_ old-val]] (io/get-it conn (str-uuid key))
+          (let [[[mheader old-meta'] [_ old-val]] (io/get-it store (str-uuid key))
                 old-meta (when old-meta' 
                             (let [mserializer (ser/byte->serializer  (get mheader 1))
                                   mcompressor (comp/byte->compressor (get mheader 2))
@@ -189,8 +189,8 @@
               (.write vbaos ^byte (encr/encryptor->byte encryptor))
               (-serialize writer vbaos write-handlers input))  
             (if old-meta
-              (io/update-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
-              (io/insert-it conn (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
+              (io/update-it store (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (io/insert-it store (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [old-val input]))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))
           (finally (async/close! res-ch))))
@@ -202,7 +202,7 @@
     (let [res-ch (async/chan)]
       (async/thread
         (try
-          (let [key-stream (io/get-keys conn)
+          (let [key-stream (io/get-keys store)
                 keys' (when key-stream
                         (for [[header k] key-stream]
                           (let [rserializer (ser/byte->serializer (get header 1))
@@ -222,7 +222,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (io/raw-get-meta conn (str-uuid key))]
+          (let [res (io/raw-get-meta store (str-uuid key))]
             (when res
               (async/put! res-ch res)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw metadata from store" e)))
@@ -233,9 +233,9 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (if (io/it-exists? conn (str-uuid key))
-            (io/raw-update-meta conn (str-uuid key) blob)
-            (io/raw-insert-meta conn (str-uuid key) blob))
+          (if (io/it-exists? store (str-uuid key))
+            (io/raw-update-meta store (str-uuid key) blob)
+            (io/raw-insert-meta store (str-uuid key) blob))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw metadata to store" e)))
           (finally (async/close! res-ch))))
       res-ch))
@@ -244,7 +244,7 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (let [res (io/raw-get-it-only conn (str-uuid key))]
+          (let [res (io/raw-get-it-only store (str-uuid key))]
             (when res
               (async/put! res-ch res)))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw value from store" e)))
@@ -255,9 +255,9 @@
     (let [res-ch (async/chan 1)]
       (async/thread
         (try
-          (if (io/it-exists? conn (str-uuid key))
-            (io/raw-update-it-only conn (str-uuid key) blob)
-            (io/raw-insert-it-only conn (str-uuid key) blob))
+          (if (io/it-exists? store (str-uuid key))
+            (io/raw-update-it-only store (str-uuid key) blob)
+            (io/raw-insert-it-only store (str-uuid key) blob))
           (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))
           (finally (async/close! res-ch))))
       res-ch)))
@@ -290,7 +290,7 @@
                 (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
             
             (async/put! res-ch
-              (map->JDBCStore { :conn {:db db :table clean-table :ds datasource}
+              (map->JDBCStore { :store {:db db :table clean-table :ds datasource :conn (jdbc/get-connection datasource)}
                                 :default-serializer default-serializer
                                 :serializers (merge ser/key->serializer serializers)
                                 :compressor compressor
@@ -302,11 +302,26 @@
           (finally (async/close! res-ch))))
       res-ch)))
 
-(defn delete-store [store]
+(defn release-store [jdbc-store]
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (jdbc/execute! (-> store :conn :ds) [(str "drop table " (-> store :conn :table))])
+        (when 
+          (-> jdbc-store :store :conn) (.close (-> jdbc-store :store :conn))
+          (assoc-in jdbc-store [:store :conn] nil))
+        (catch Exception e (async/put! res-ch (prep-ex "Failed to release store" e)))
+        (finally (async/close! res-ch))))          
+    res-ch))
+
+
+(defn delete-store [jdbc-store]
+  (let [res-ch (async/chan 1)]
+    (async/thread
+      (try
+        (jdbc/execute! (-> jdbc-store :store :ds) [(str "drop table " (-> jdbc-store :store :table))])
+        (when (-> jdbc-store :store :conn) 
+          (.close (-> jdbc-store :store :conn))
+          (assoc-in jdbc-store [:store :conn] nil))
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))
         (finally (async/close! res-ch))))          
     res-ch))
