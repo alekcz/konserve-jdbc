@@ -58,7 +58,6 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
-      (release-store store)
       (release-store store)                          
       (delete-store store))))
 
@@ -245,8 +244,6 @@
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
           corrupt (reduce corruptor store params)] ; let's corrupt our store
-      (release-store store)                          
-      (delete-store store)          
       (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
