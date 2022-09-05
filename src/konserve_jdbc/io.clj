@@ -12,16 +12,9 @@
 (defn h2? [store]
   (-> store :db :dbtype (= "h2")))
 
-(defn extract-bytes [obj store]
-  (when obj
-    (cond
-      (h2? store)
-        (.getBytes ^Blob obj 0 (.length ^Blob obj))
-        :else obj)))
-
-(defn split-header [bytes-or-blob store]
+(defn split-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
-    (let [bytes (extract-bytes bytes-or-blob store)
+    (let [bytes bytes-or-blob
           data  (->> bytes vec (split-at 4))
           streamer (fn [header data] (list (byte-array header) (-> data byte-array (ByteArrayInputStream.))))]
       (apply streamer data))))
@@ -42,7 +35,7 @@
         data (:data res')
         meta (:meta res')
         res (if (and meta data)
-              [(split-header meta store) (split-header data  store)]
+              [(split-header meta) (split-header data)]
               [nil nil])]
       res)))
 
@@ -52,7 +45,7 @@
     (h2/get-it-only store id)
     (let [res' (first (jdbc/execute! (:conn store) [(str "select id,data from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')
-        res (when data (split-header data store))]
+        res (when data (split-header data))]
       res)))
 
 (defn get-meta 
@@ -61,7 +54,7 @@
     (h2/get-meta store id)
     (let [res' (first (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         meta (:meta res')
-        res (when meta (split-header meta store))]
+        res (when meta (split-header meta))]
       res)))
 
 (defn update-it 
@@ -89,7 +82,7 @@
   (if (h2? store)
     (h2/get-keys store)
     (let [res' (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store))] {:builder-fn rs/as-unqualified-lower-maps})
-        res (doall (map #(split-header (:meta %) store) res'))]
+        res (doall (map #(split-header (:meta %)) res'))]
       res)))
 
 (defn raw-get-it-only
@@ -98,7 +91,7 @@
     (h2/raw-get-it-only store id)
     (let [res' (first (jdbc/execute! (:conn store) [(str "select id,data from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')]
-      (extract-bytes data store))))
+      data)))
 
 (defn raw-get-meta 
   [store id]
@@ -106,7 +99,7 @@
     (h2/raw-get-meta store id)
     (let [res' (first (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
         meta (:meta res')]
-      (extract-bytes meta store))))
+      meta)))
 
 (defn raw-update-it-only 
   [store id blob]

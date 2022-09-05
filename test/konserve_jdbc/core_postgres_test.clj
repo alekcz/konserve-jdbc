@@ -243,7 +243,8 @@
                         (if (= (type (k s)) clojure.lang.Atom)
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
-          corrupt (reduce corruptor store params)] ; let's corrupt our store
+          corrupt (reduce corruptor store params) ; let's corrupt our store
+          corrupt2 (assoc-in store [:store :conn] (UnknownType.))] 
       (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
@@ -255,4 +256,5 @@
       (is (exception? (<!! (k/keys corrupt))))
       (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
       (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10))))))
+      (is (exception? (<!! (release-store corrupt2))))
       (is (exception? (<!! (delete-store corrupt)))))))
