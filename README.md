@@ -10,7 +10,7 @@ A [JDBC](https://github.com/clojure/java.jdbc) backend for [konserve](https://gi
 
 [![Clojars Project](https://img.shields.io/clojars/v/alekcz/konserve-jdbc.svg)](https://clojars.org/alekcz/konserve-jdbc)
 
-`[alekcz/konserve-jdbc "0.1.0-SNAPSHOT"]`
+`[alekcz/konserve-jdbc "0.2.0-SNAPSHOT"]`
 
 ```clojure
 (require '[konserve-jdbc.core :refer [new-jdbc-store]]
