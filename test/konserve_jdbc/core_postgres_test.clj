@@ -3,7 +3,7 @@
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store release-store]]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))
 
@@ -58,7 +58,6 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
-      (release-store store)                          
       (delete-store store))))
 
 (deftest update-value-test
@@ -80,7 +79,6 @@
       (is  (<!! (k/exists? store :foo)))
       (<!! (k/dissoc store :foo))
       (is (not (<!! (k/exists? store :foo))))
-      (release-store store)                          
       (delete-store store))))
 
 (deftest binary-test
@@ -104,7 +102,6 @@
       (is (<!! (k/exists? store :binbar)))
       (is @cb)
       (is @cb2)
-      (release-store store)                          
       (delete-store store))))
   
 (deftest key-test
@@ -115,7 +112,6 @@
       (<!! (k/assoc store :baz 20))
       (<!! (k/assoc store :binbar 20))
       (is (= #{:baz :binbar} (<!! (async/into #{} (k/keys store)))))
-      (release-store store)                          
       (delete-store store))))  
 
 (deftest append-test
@@ -132,7 +128,6 @@
                                 (conj acc elem))
                               []))
              [{:bar 42} {:bar 43}]))
-      (release-store store)                          
       (delete-store store))))
 
 (def home
@@ -175,7 +170,6 @@
       (is (= (+ num1 num2 (:number address)) 
              (<!! (k/get-in store [name :address :number]))))             
       
-      (release-store store)                          
       (delete-store store))))   
 
 (deftest bulk-test
@@ -193,7 +187,6 @@
       (<!! (k/bget store :binary (fn [{:keys [input-stream]}]
                                     (is (= (pmap byte (slurp input-stream))
                                            sevens)))))
-      (release-store store)                          
       (delete-store store))))  
 
 (deftest raw-meta-test
@@ -212,7 +205,6 @@
         (is (nil? mraw3))
         (is (= :eye (:key (<!! (k/get-meta store :foo)))))
         (is (= :eye (:key (<!! (k/get-meta store :baritone))))))        
-      (release-store store)                          
       (delete-store store))))          
 
 (deftest raw-value-test
@@ -231,7 +223,6 @@
         (is (nil? vraw3))
         (is (= :ear (<!! (k/get store :foo))))
         (is (= :ear (<!! (k/get store :baritone)))))      
-      (release-store store)                          
       (delete-store store))))   
 
 (deftest exceptions-test
@@ -243,8 +234,7 @@
                         (if (= (type (k s)) clojure.lang.Atom)
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
-          corrupt (reduce corruptor store params) ; let's corrupt our store
-          corrupt2 (assoc-in store [:store :conn] (UnknownType.))] 
+          corrupt (reduce corruptor store params)] ; let's corrupt our store
       (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
@@ -256,5 +246,4 @@
       (is (exception? (<!! (k/keys corrupt))))
       (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
       (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10))))))
-      (is (exception? (<!! (release-store corrupt2))))
       (is (exception? (<!! (delete-store corrupt)))))))

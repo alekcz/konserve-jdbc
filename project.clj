@@ -6,7 +6,6 @@
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [com.h2database/h2 "1.4.200"]
                  [seancorfield/next.jdbc "1.2.659"]
-                 [com.mchange/c3p0 "0.9.5.5"]
                  [org.apache.derby/derby "10.14.2.0"]
                  [mysql/mysql-connector-java "8.0.20"]
                  [org.postgresql/postgresql "42.2.12"]
