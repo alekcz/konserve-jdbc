@@ -4,6 +4,7 @@
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
             [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
+            [konserve.compressor :as comp]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))
 
@@ -225,7 +226,7 @@
 (deftest raw-value-test
   (testing "Test value storage"
     (let [_ (println "Checking if values are stored correctly")
-          store (<!! (new-jdbc-store conn :table "test_values"))]
+          store (<!! (new-jdbc-store (assoc conn :compressor comp/lz4-compressor) :table "test_values"))]
       (<!! (k/assoc store :foo :bar))
       (<!! (k/assoc store :eye :ear))
       (let [vraw (<!! (kl/-get-raw-value store :foo))
@@ -234,7 +235,7 @@
             header (take 4 (map byte vraw))]
         (<!! (kl/-put-raw-value store :foo vraw2))
         (<!! (kl/-put-raw-value store :baritone vraw2))
-        (is (= header [1 1 0 0]))
+        (is (= header [1 1 1 0]))
         (is (nil? vraw3))
         (is (= :ear (<!! (k/get store :foo))))
         (is (= :ear (<!! (k/get store :baritone)))))      

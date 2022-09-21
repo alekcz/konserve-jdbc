@@ -4,6 +4,7 @@
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
             [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
+            [konserve.encryptor :as encr]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))
 
@@ -195,7 +196,7 @@
 (deftest raw-meta-test
   (testing "Test header storage"
     (let [_ (println "Checking if headers are stored correctly")
-          store (<!! (new-jdbc-store conn :table "test_headers"))]
+          store (<!! (new-jdbc-store (assoc conn :encryptor encr/null-encryptor) :table "test_headers"))]
       (<!! (k/assoc store :foo :bar))
       (<!! (k/assoc store :eye :ear))
       (let [mraw (<!! (kl/-get-raw-meta store :foo))
@@ -213,7 +214,7 @@
 (deftest raw-value-test
   (testing "Test value storage"
     (let [_ (println "Checking if values are stored correctly")
-          store (<!! (new-jdbc-store conn :table "test_values"))]
+          store (<!! (new-jdbc-store (assoc conn :serializer :FressianSerializer) :table "test_values"))]
       (<!! (k/assoc store :foo :bar))
       (<!! (k/assoc store :eye :ear))
       (let [vraw (<!! (kl/-get-raw-value store :foo))

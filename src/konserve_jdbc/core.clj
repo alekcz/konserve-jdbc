@@ -274,7 +274,10 @@
     (let [res-ch (async/chan 1)
           dbtype (or (:dbtype db) (:subprotocol db))
           final-table (str "konserve_" (or (:table db) table))
-          clean-table (str/replace final-table #"[^0-9a-zA-Z:_]+" "_")]   
+          clean-table (str/replace final-table #"[^0-9a-zA-Z:_]+" "_")
+          final-serializer (or (:serializer db) default-serializer)
+          final-compressor (or (:compressor db) compressor)
+          final-encryptor  (or (:encryptor db) encryptor)]   
       (async/thread 
         (try
           (when-not dbtype 
@@ -292,10 +295,10 @@
             
             (async/put! res-ch
               (map->JDBCStore { :store {:db db :table clean-table :ds datasource}
-                                :default-serializer default-serializer
+                                :default-serializer final-serializer
                                 :serializers (merge ser/key->serializer serializers)
-                                :compressor compressor
-                                :encryptor encryptor
+                                :compressor final-compressor
+                                :encryptor final-encryptor
                                 :read-handlers read-handlers
                                 :write-handlers write-handlers
                                 :locks (atom {})})))
