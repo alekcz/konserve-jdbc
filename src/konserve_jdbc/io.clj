@@ -31,7 +31,7 @@
 (defn get-it 
   [conn id]
   (with-open [con (jdbc/get-connection (:ds conn))]
-    (let [res' (first (jdbc/execute! con [(str "select * from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+    (let [res' (first (jdbc/execute! con [(str "select id,meta,data from " (:table conn) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
           data (:data res')
           meta (:meta res')
           res (if (and meta data)

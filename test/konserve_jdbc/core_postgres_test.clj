@@ -189,6 +189,21 @@
                                            sevens)))))
       (delete-store store))))  
 
+(deftest perf-test
+  (testing "Insert perf test."
+    (let [num 1000
+          _ (println (str "Writing " num " bits of data"))
+          store (<!! (new-jdbc-store conn :table "test_perf"))
+          range20K 20000
+          sevens (apply str (vec (repeat range20K 7)))]
+      (print (str "Writing 20KB x " num ": "))
+      (time 
+        (doseq [n (range num)]
+          (<!! (k/assoc store (keyword (str "num-" n)) sevens))))
+      (doseq [n (range num)]
+          (is (= (count sevens) (count (<!! (k/get store (keyword (str "num-" n))))))))
+      (delete-store store))))  
+
 (deftest raw-meta-test
   (testing "Test header storage"
     (let [_ (println "Checking if headers are stored correctly")
@@ -201,7 +216,7 @@
             header (take 4 (map byte mraw))]
         (<!! (kl/-put-raw-meta store :foo mraw2))
         (<!! (kl/-put-raw-meta store :baritone mraw2))
-        (is (= header [1 1 1 0]))
+        (is (= header [1 1 0 0]))
         (is (nil? mraw3))
         (is (= :eye (:key (<!! (k/get-meta store :foo)))))
         (is (= :eye (:key (<!! (k/get-meta store :baritone))))))        
@@ -219,7 +234,7 @@
             header (take 4 (map byte vraw))]
         (<!! (kl/-put-raw-value store :foo vraw2))
         (<!! (kl/-put-raw-value store :baritone vraw2))
-        (is (= header [1 1 1 0]))
+        (is (= header [1 1 0 0]))
         (is (nil? vraw3))
         (is (= :ear (<!! (k/get store :foo))))
         (is (= :ear (<!! (k/get store :baritone)))))      

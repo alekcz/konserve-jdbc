@@ -200,7 +200,7 @@
             header (take 4 (map byte mraw))]
         (<!! (kl/-put-raw-meta store :foo mraw2))
         (<!! (kl/-put-raw-meta store :baritone mraw2))
-        (is (= header [1 1 1 0]))
+        (is (= header [1 1 0 0]))
         (is (nil? mraw3))
         (is (= :eye (:key (<!! (k/get-meta store :foo)))))
         (is (= :eye (:key (<!! (k/get-meta store :baritone))))))        
@@ -218,7 +218,7 @@
             header (take 4 (map byte vraw))]
         (<!! (kl/-put-raw-value store :foo vraw2))
         (<!! (kl/-put-raw-value store :baritone vraw2))
-        (is (= header [1 1 1 0]))
+        (is (= header [1 1 0 0]))
         (is (nil? vraw3))
         (is (= :ear (<!! (k/get store :foo))))
         (is (= :ear (<!! (k/get store :baritone)))))      

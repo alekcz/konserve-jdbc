@@ -73,7 +73,7 @@
       (async/thread
         (try
           (let [[header res] (io/get-meta store (str-uuid key))]
-            (if (some? res) 
+            (when (some? res) 
               (let [rserializer (ser/byte->serializer (get header 1))
                     rcompressor (comp/byte->compressor (get header 2))
                     rencryptor  (encr/byte->encryptor  (get header 3))
@@ -267,7 +267,7 @@
   ([db & {:keys [table default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
                          table "konserve"
-                         compressor comp/lz4-compressor
+                         compressor comp/null-compressor
                          encryptor encr/null-encryptor
                          read-handlers (atom {})
                          write-handlers (atom {})}}]
