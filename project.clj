@@ -15,4 +15,4 @@
   :javac-options ["--release" "8" "-g"]
   :repl-options {:init-ns konserve-jdbc.core}
   :plugins [[lein-cloverage "1.2.4"]]
-  :profiles { :dev {:dependencies [[metosin/malli "0.5.1"]]}})
+  :profiles { :dev {:dependencies [[metosin/malli "0.8.9"]]}})
