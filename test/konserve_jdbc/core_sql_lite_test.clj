@@ -131,6 +131,18 @@
              [{:bar 42} {:bar 43}]))
       (delete-store store))))
 
+(deftest limit-test
+  (testing "Rows returned limit test."
+    (let [num 20000
+          _ (println (str "Writing " num " bits of data"))
+          store (<!! (new-jdbc-store conn :table "test_limit"))
+          data {:random "map" :rand (rand)}]
+      (time 
+        (doseq [n (range num)]
+          (<!! (k/assoc store (keyword (str "num-" n)) data))))
+      (is (= num (count (<!! (async/into #{} (k/keys store))))))
+      (delete-store store))))  
+
 (def home
   [:map
     [:name string?]

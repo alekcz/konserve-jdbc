@@ -12,6 +12,13 @@
 (defn h2? [store]
   (-> store :db :dbtype (= "h2")))
 
+(defn set-limit [store]
+  (case (-> store :db :dbtype)
+    "postgresql" " limit all"
+    "sqlite" " limit -1"
+    ""))
+
+
 (defn split-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
     (let [bytes bytes-or-blob
@@ -24,14 +31,14 @@
   [store id]
   (if (h2? store)
     (h2/it-exists? store id)
-    (let [res (first (jdbc/execute! (:conn store) [(str "select 1 from " (:table store) " where id = '" id "'")]))]
+    (let [res (first (jdbc/execute! (:conn store) [(str "select 1 from " (:table store) " where id = '" id "'" (set-limit store))]))]
       (not (nil? res)))))
 
 (defn get-it 
   [store id]
   (if (h2? store)
     (h2/get-it store id)
-    (let [res' (first (jdbc/execute! (:conn store) [(str "select * from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+    (let [res' (first (jdbc/execute! (:conn store) [(str "select * from " (:table store) " where id = '" id "'" (set-limit store))] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')
         meta (:meta res')
         res (if (and meta data)
@@ -43,7 +50,7 @@
   [store id]
   (if (h2? store)
     (h2/get-it-only store id)
-    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,data from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,data from " (:table store) " where id = '" id "'" (set-limit store))] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')
         res (when data (split-header data))]
       res)))
@@ -52,7 +59,7 @@
   [store id]
   (if (h2? store)
     (h2/get-meta store id)
-    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) " where id = '" id "'" (set-limit store))] {:builder-fn rs/as-unqualified-lower-maps}))
         meta (:meta res')
         res (when meta (split-header meta))]
       res)))
@@ -75,21 +82,21 @@
   [store id]
   (if (h2? store)
     (h2/delete-it store id)
-    (jdbc/execute! (:conn store) [(str "delete from " (:table store) " where id = '" id "'")])) )
+    (jdbc/execute! (:conn store) [(str "delete from " (:table store) " where id = '" id "'" )])) )
 
 (defn get-keys 
   [store]
   (if (h2? store)
     (h2/get-keys store)
-    (let [res' (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store))] {:builder-fn rs/as-unqualified-lower-maps})
-        res (doall (map #(split-header (:meta %)) res'))]
+    (let [res' (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) (set-limit store))] {:builder-fn rs/as-unqualified-lower-maps})
+        res (map #(split-header (:meta %)) res')]
       res)))
 
 (defn raw-get-it-only
   [store id]
   (if (h2? store)
     (h2/raw-get-it-only store id)
-    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,data from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,data from " (:table store) " where id = '" id "'" (set-limit store))] {:builder-fn rs/as-unqualified-lower-maps}))
         data (:data res')]
       data)))
 
@@ -97,7 +104,7 @@
   [store id]
   (if (h2? store)
     (h2/raw-get-meta store id)
-    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) " where id = '" id "'")] {:builder-fn rs/as-unqualified-lower-maps}))
+    (let [res' (first (jdbc/execute! (:conn store) [(str "select id,meta from " (:table store) " where id = '" id "'" (set-limit store))] {:builder-fn rs/as-unqualified-lower-maps}))
         meta (:meta res')]
       meta)))
 

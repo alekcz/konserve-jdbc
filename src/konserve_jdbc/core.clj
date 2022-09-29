@@ -24,6 +24,7 @@
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver" "mssql"])
 (def store-layout 1)
+(def max-buffer-size 16384)
 
 (defn str-uuid 
   [key] 
@@ -201,7 +202,7 @@
   PKeyIterable
   (-keys 
     [_]
-    (let [res-ch (async/chan)]
+    (let [res-ch (async/chan (async/buffer max-buffer-size))]
       (async/thread
         (try
           (let [key-stream (io/get-keys store)
@@ -212,7 +213,7 @@
                                 rencryptor  (encr/byte->encryptor  (get header 3))
                                 reader (-> rserializer rencryptor rcompressor)]
                             (-deserialize reader read-handlers k))))
-                keys (doall (map :key keys'))]
+                keys (map :key keys')]
             (doall
               (map #(async/put! res-ch %) keys))) 
           (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))
@@ -265,7 +266,7 @@
       res-ch)))
 
 (defn new-jdbc-store
-  ([db & {:keys [table debug default-serializer serializers compressor encryptor read-handlers write-handlers]
+  ([db & {:keys [table buffer-size debug default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
                          table "konserve"
                          debug false
