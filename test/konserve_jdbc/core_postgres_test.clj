@@ -3,7 +3,7 @@
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store release-store]]
             [konserve.compressor :as comp]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))
@@ -40,7 +40,7 @@
 (deftest get-nil-test
   (testing "Test getting on empty store"
     (let [_ (println "Getting from an empty store")
-          store (<!! (new-jdbc-store conn :table "default"))]
+          store (<!! (new-jdbc-store conn :table "default" :debug true))]
       (is (= nil (<!! (k/get store :foo))))
       (is (= nil (<!! (k/get-meta store :foo))))
       (is (not (<!! (k/exists? store :foo))))
@@ -51,7 +51,7 @@
 (deftest write-value-test
   (testing "Test writing to store"
     (let [_ (println "Writing to store")
-          store (<!! (new-jdbc-store (assoc conn :table "test_write")))]
+          store (<!! (new-jdbc-store (assoc conn :table "test_write" :debug true)))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :bar))
       (is (<!! (k/exists? store :foo)))
@@ -59,6 +59,7 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
+      (release-store store)
       (delete-store store))))
 
 (deftest update-value-test
@@ -69,6 +70,7 @@
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
       (is (= "baritone" (<!! (k/get-in store [:foo]))))
+      (release-store store)
       (delete-store store))))
 
 (deftest exists-test
@@ -250,7 +252,8 @@
                         (if (= (type (k s)) clojure.lang.Atom)
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
-          corrupt (reduce corruptor store params)] ; let's corrupt our store
+          corrupt (reduce corruptor store params) ; let's corrupt our store
+          corrupt-conn (assoc-in store [:store :conn] (UnknownType.))]
       (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
@@ -262,4 +265,5 @@
       (is (exception? (<!! (k/keys corrupt))))
       (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
       (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10))))))
+      (is (exception? (<!! (release-store corrupt-conn))))
       (is (exception? (<!! (delete-store corrupt)))))))

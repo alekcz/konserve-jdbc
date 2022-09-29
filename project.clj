@@ -11,7 +11,8 @@
                  [org.postgresql/postgresql "42.2.12"]
                  [org.xerial/sqlite-jdbc "3.23.1"]
                  [io.replikativ/konserve "0.6.0-alpha3"]
-                 [com.microsoft.sqlserver/mssql-jdbc "9.1.1.jre8-preview"]]
+                 [com.microsoft.sqlserver/mssql-jdbc "9.1.1.jre8-preview"]
+                 [com.mchange/c3p0 "0.9.5.5"]]
   :javac-options ["--release" "8" "-g"]
   :repl-options {:init-ns konserve-jdbc.core}
   :plugins [[lein-cloverage "1.2.4"]]

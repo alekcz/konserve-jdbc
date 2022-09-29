@@ -3,7 +3,7 @@
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store release-store]]
             [malli.generator :as mg]
             [clojure.java.io :as io])
   (:import  [java.io File]))
@@ -44,6 +44,7 @@
       (is (= :default (<!! (k/get-in store [:fuu] :default))))
       (<!! (k/bget store :foo (fn [res] 
                                 (is (nil? res)))))
+      (release-store store)
       (delete-store store))))
 
 (deftest write-value-test
@@ -57,6 +58,7 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
+      (release-store store)
       (delete-store store))))
 
 (deftest update-value-test

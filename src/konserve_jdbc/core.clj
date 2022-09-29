@@ -18,7 +18,8 @@
                                         PKeyIterable
                                         -keys]]
             [konserve.storage-layout :refer [SplitLayout]])
-  (:import  [java.io ByteArrayOutputStream]))
+  (:import  [java.io ByteArrayOutputStream]
+            [com.mchange.v2.c3p0 ComboPooledDataSource PooledDataSource]))
 
 (set! *warn-on-reflection* 1)
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver" "mssql"])
@@ -264,25 +265,35 @@
       res-ch)))
 
 (defn new-jdbc-store
-  ([db & {:keys [table default-serializer serializers compressor encryptor read-handlers write-handlers]
+  ([db & {:keys [table debug default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
                          table "konserve"
+                         debug false
                          compressor comp/null-compressor
                          encryptor encr/null-encryptor
                          read-handlers (atom {})
-                         write-handlers (atom {})}}]
+                         write-handlers (atom {})}}]                       
     (let [res-ch (async/chan 1)
           dbtype (or (:dbtype db) (:subprotocol db))
           final-table (str "konserve_" (or (:table db) table))
+          final-debug (or (:debug db) debug)
           clean-table (str/replace final-table #"[^0-9a-zA-Z:_]+" "_")
           final-serializer (or (:serializer db) default-serializer)
           final-compressor (or (:compressor db) compressor)
           final-encryptor  (or (:encryptor db) encryptor)]   
+      
+      (when final-debug
+        (System/setProperties 
+          (doto (java.util.Properties. (System/getProperties))
+            (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
+            (.put "com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL" "OFF")))) 
+      
       (async/thread 
         (try
           (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
-          (let [datasource (jdbc/get-datasource db)]
+          (let [datasource (jdbc/get-datasource db)
+                ^PooledDataSource conn (connection/->pool ComboPooledDataSource db)]
             (case dbtype
 
               "postgresql" 
@@ -294,7 +305,7 @@
               (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
             
             (async/put! res-ch
-              (map->JDBCStore { :store {:db db :table clean-table :ds datasource}
+              (map->JDBCStore { :store {:db db :table clean-table :ds datasource :conn conn}
                                 :default-serializer final-serializer
                                 :serializers (merge ser/key->serializer serializers)
                                 :compressor final-compressor
@@ -306,11 +317,25 @@
           (finally (async/close! res-ch))))
       res-ch)))
 
+(defn release-store [jdbc-store]
+  (let [res-ch (async/chan 1)]
+    (async/thread
+      (try
+        (when (-> jdbc-store :store :conn) 
+          (.close ^PooledDataSource (-> jdbc-store :store :conn))
+          (assoc-in jdbc-store [:store :conn] nil))
+        (catch Exception e (async/put! res-ch (prep-ex "Failed to release store" e)))
+        (finally (async/close! res-ch))))          
+    res-ch))
+
 (defn delete-store [jdbc-store]
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
         (jdbc/execute! (-> jdbc-store :store :ds) [(str "drop table " (-> jdbc-store :store :table))])
+        (when (-> jdbc-store :store :conn) 
+          (.close ^PooledDataSource (-> jdbc-store :store :conn))
+          (assoc-in jdbc-store [:store :conn] nil))
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))
         (finally (async/close! res-ch))))          
     res-ch))
