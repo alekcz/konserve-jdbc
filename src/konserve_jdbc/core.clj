@@ -265,8 +265,19 @@
           (finally (async/close! res-ch))))
       res-ch)))
 
+(defn release-store [jdbc-store]
+  (let [res-ch (async/chan 1)]
+    (async/thread
+      (try
+        (when (-> jdbc-store :store :conn) 
+          (.close ^PooledDataSource (-> jdbc-store :store :conn))
+          (assoc-in jdbc-store [:store :conn] nil))
+        (catch Exception e (async/put! res-ch (prep-ex "Failed to release store" e)))
+        (finally (async/close! res-ch))))          
+    res-ch))
+
 (defn new-jdbc-store
-  ([db & {:keys [table buffer-size debug default-serializer serializers compressor encryptor read-handlers write-handlers]
+  ([db & {:keys [table debug default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
                          table "konserve"
                          debug false
@@ -294,9 +305,13 @@
           (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
           (let [datasource (jdbc/get-datasource db)
-                ^PooledDataSource conn (connection/->pool ComboPooledDataSource db)]
-            (case dbtype
+                ^PooledDataSource conn (connection/->pool ComboPooledDataSource db)
+                shutdown  (fn [] (release-store {:store {:db db :table clean-table :conn conn}}))]
+            
+            
+            (.addShutdownHook (Runtime/getRuntime) (Thread. ^Runnable shutdown))  
 
+            (case dbtype
               "postgresql" 
                 (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
 
@@ -317,17 +332,6 @@
           (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))
           (finally (async/close! res-ch))))
       res-ch)))
-
-(defn release-store [jdbc-store]
-  (let [res-ch (async/chan 1)]
-    (async/thread
-      (try
-        (when (-> jdbc-store :store :conn) 
-          (.close ^PooledDataSource (-> jdbc-store :store :conn))
-          (assoc-in jdbc-store [:store :conn] nil))
-        (catch Exception e (async/put! res-ch (prep-ex "Failed to release store" e)))
-        (finally (async/close! res-ch))))          
-    res-ch))
 
 (defn delete-store [jdbc-store]
   (let [res-ch (async/chan 1)]
