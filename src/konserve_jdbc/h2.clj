@@ -78,7 +78,7 @@
   [conn]
   (with-open [con (jdbc/get-connection (:ds conn))]
     (let [res' (jdbc/execute! con [(str "select id,meta from " (:table conn))] {:builder-fn rs/as-unqualified-lower-maps})
-          res (map #(split-header (:meta %)) res')]
+          res (doall (map #(split-header (:meta %)) res'))]
       res)))
 
 (defn raw-get-it-only
