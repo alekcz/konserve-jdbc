@@ -282,7 +282,7 @@
           final-compressor (or (:compressor db) compressor)
           final-encryptor  (or (:encryptor db) encryptor)]   
       
-      (when final-debug
+      (when-not final-debug
         (System/setProperties 
           (doto (java.util.Properties. (System/getProperties))
             (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
