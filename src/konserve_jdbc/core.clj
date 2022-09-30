@@ -32,8 +32,9 @@
   (str (hasch/uuid key))) 
 
 (defn prep-ex 
-  [^String message ^Exception e]
-  ;; (.printStackTrace e)
+  [store ^String message ^Exception e]
+  (when (:debug store) 
+    (.printStackTrace e))
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
 (defn prep-stream 
@@ -50,17 +51,17 @@
   (-exists? 
     [_this key] 
       (let [res-ch (async/chan 1)]
-        (async/thread
+        (async/go
           (try
             (async/put! res-ch (io/it-exists? store (str-uuid key)))
-            (catch Exception e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))
+            (catch Exception e (async/put! res-ch (prep-ex store "Failed to determine if item exists" e)))
             (finally (async/close! res-ch))))
         res-ch))
 
   (-get 
     [_this key] 
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[header res] (io/get-it-only store (str-uuid key))]
             (when (some? res) 
@@ -70,14 +71,14 @@
                     reader (-> rserializer rencryptor rcompressor)
                     data (-deserialize reader read-handlers res)]
                 (async/put! res-ch data))))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve value from store" e)))
           (finally (async/close! res-ch))))
       res-ch))
 
   (-get-meta 
     [_this key] 
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[header res] (io/get-meta store (str-uuid key))]
             (when (some? res) 
@@ -87,14 +88,14 @@
                     reader (-> rserializer rencryptor rcompressor)
                     data (-deserialize reader read-handlers res)] 
                 (async/put! res-ch data))))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve metadata from store" e)))
           (finally (async/close! res-ch))))
       res-ch))
 
   (-update-in 
     [_this key-vec meta-up-fn up-fn args]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[fkey & rkey] key-vec
                 [[mheader ometa'] [vheader oval']] (io/get-it store (str-uuid fkey))
@@ -132,7 +133,7 @@
               (io/update-it store (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
               (io/insert-it store (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [(second old-val) nval]))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to update/write value in store" e)))
           (finally (async/close! res-ch))))
         res-ch))
 
@@ -141,11 +142,11 @@
   (-dissoc 
     [_this key] 
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (io/delete-it store (str-uuid key))
           (async/close! res-ch)
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to delete key-value pair from store" e)))
           (finally (async/close! res-ch))))
         res-ch))
 
@@ -153,7 +154,7 @@
   (-bget 
     [_this key locked-cb]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[header res] (io/get-it-only store (str-uuid key))]
             (when (some? res) 
@@ -163,14 +164,14 @@
                     reader (-> rserializer rencryptor rcompressor)
                     data (-deserialize reader read-handlers res)]
                 (async/put! res-ch (locked-cb (prep-stream data))))))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve binary value from store" e)))
           (finally (async/close! res-ch))))
       res-ch))
 
   (-bassoc 
     [_this key meta-up-fn input]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[[mheader old-meta'] [_ old-val]] (io/get-it store (str-uuid key))
                 old-meta (when old-meta' 
@@ -200,7 +201,7 @@
               (io/update-it store (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
               (io/insert-it store (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)]))
             (async/put! res-ch [old-val input]))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to write binary value in store" e)))
           (finally (async/close! res-ch))))
         res-ch))
 
@@ -208,7 +209,7 @@
   (-keys 
     [_]
     (let [res-ch (async/chan (async/buffer max-buffer-size))]
-      (async/thread
+      (async/go
         (try
           (let [key-stream (io/get-keys store)
                 keys' (when key-stream
@@ -221,52 +222,52 @@
                 keys (map :key keys')]
             (doall
               (map #(async/put! res-ch %) keys))) 
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve keys from store" e)))
           (finally (async/close! res-ch))))
         res-ch))
         
   SplitLayout      
   (-get-raw-meta [_this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [res (io/raw-get-meta store (str-uuid key))]
             (when res
               (async/put! res-ch res)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw metadata from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve raw metadata from store" e)))
           (finally (async/close! res-ch))))
       res-ch))
 
   (-put-raw-meta [_this key blob]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (if (io/it-exists? store (str-uuid key))
             (io/raw-update-meta store (str-uuid key) blob)
             (io/raw-insert-meta store (str-uuid key) blob))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw metadata to store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to write raw metadata to store" e)))
           (finally (async/close! res-ch))))
       res-ch))
 
   (-get-raw-value [_this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [res (io/raw-get-it-only store (str-uuid key))]
             (when res
               (async/put! res-ch res)))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to retrieve raw value from store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve raw value from store" e)))
           (finally (async/close! res-ch))))
       res-ch))
 
   (-put-raw-value [_this key blob]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (if (io/it-exists? store (str-uuid key))
             (io/raw-update-it-only store (str-uuid key) blob)
             (io/raw-insert-it-only store (str-uuid key) blob))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex store "Failed to write raw value to store" e)))
           (finally (async/close! res-ch))))
       res-ch)))
 
@@ -286,7 +287,8 @@
           clean-table (str/replace final-table #"[^0-9a-zA-Z:_]+" "_")
           final-serializer (or (:serializer db) default-serializer)
           final-compressor (or (:compressor db) compressor)
-          final-encryptor  (or (:encryptor db) encryptor)]   
+          final-encryptor  (or (:encryptor db) encryptor)
+          db (assoc db :testConnectionOnCheckout true)]   
       
       (when-not final-debug
         (System/setProperties 
@@ -294,33 +296,30 @@
             (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
             (.put "com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL" "OFF")))) 
       
-      (async/thread 
+      (async/go 
         (try
           (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
           (let [id (pool-key db)
-                get-conn (fn []
-                            (if (nil? (get @pool id)) 
-                              (let [conns ^PooledDataSource (connection/->pool ComboPooledDataSource db)] 
-                                (swap! pool assoc id conns)
-                                conns)
-                              (get @pool id)))
-                shutdown  (fn [] (.close (get-conn)))]
+                _ (when (nil? (get @pool id)) 
+                    (let [conns ^PooledDataSource (connection/->pool ComboPooledDataSource db)] 
+                      (swap! pool assoc id conns)))
+                shutdown  (fn [] (.close (get @pool id)))]
             
             (.addShutdownHook (Runtime/getRuntime) (Thread. ^Runnable shutdown))  
+            (.close (jdbc/get-connection (get @pool id)))
             
-            (with-open [con (jdbc/get-connection (get-conn))]
-              (case dbtype
-                "postgresql" 
-                  (jdbc/execute! con [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
+            (case dbtype
+              "postgresql" 
+                (jdbc/execute! (get @pool id) [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
 
-                ("mssql" "sqlserver")
-                  (jdbc/execute! con [(str "IF OBJECT_ID(N'dbo." clean-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." clean-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
-              
-                (jdbc/execute! con [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")])))
+              ("mssql" "sqlserver")
+                (jdbc/execute! (get @pool id) [(str "IF OBJECT_ID(N'dbo." clean-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." clean-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
+            
+              (jdbc/execute! (get @pool id) [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
               
             (async/put! res-ch
-              (map->JDBCStore { :store {:id id :db db :table clean-table :conn get-conn}
+              (map->JDBCStore { :store {:id id :db db :table clean-table :conn pool :debug final-debug}
                                 :default-serializer final-serializer
                                 :serializers (merge ser/key->serializer serializers)
                                 :compressor final-compressor
@@ -328,15 +327,15 @@
                                 :read-handlers read-handlers
                                 :write-handlers write-handlers
                                 :locks (atom {})})))
-          (catch Exception e (async/put! res-ch (prep-ex "Failed to connect to store" e)))
+          (catch Exception e (async/put! res-ch (prep-ex {:debug final-debug} "Failed to connect to store" e)))
           (finally (async/close! res-ch))))
       res-ch)))
 
 (defn delete-store [jdbc-store]
   (let [res-ch (async/chan 1)]
-    (async/thread
+    (async/go
       (try
         (jdbc/execute! (-> jdbc-store :store :db) [(str "drop table " (-> jdbc-store :store :table))])
-        (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))
+        (catch Exception e (async/put! res-ch (prep-ex (-> jdbc-store :store) "Failed to delete store" e)))
         (finally (async/close! res-ch))))          
     res-ch))

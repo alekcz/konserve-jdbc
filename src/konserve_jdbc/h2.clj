@@ -13,7 +13,9 @@
     (.getBytes ^Blob obj 0 (.length ^Blob obj))))
 
 (defn get-conn [store]
- ^PooledDataSource ((:conn store)))
+  (let [pool (-> store :conn)
+        id (-> store :id)]
+    (get @pool id)))
 
 (defn split-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
