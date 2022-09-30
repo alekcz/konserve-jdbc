@@ -3,7 +3,7 @@
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store release-store]]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))
 
@@ -14,6 +14,10 @@
     :host "localhost"
     :user "sa"
     :password "passwordA1!"
+    :initialPoolSize 25
+    :numHelperThreads 25
+    :minPoolSize 20
+    :maxPoolSize 50
    })
 
 (def conn2 
@@ -22,6 +26,9 @@
     :host "localhost"
     :user "sa"
     :password "passwordA1!"
+    :initialPoolSize 25
+    :minPoolSize 20
+    :maxPoolSize 50
    })   
 
 (deftype UnknownType [])
@@ -69,7 +76,6 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
-      (release-store store)                                                    
       (delete-store store))))
 
 (deftest update-value-test
@@ -80,7 +86,6 @@
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
       (is (= "baritone" (<!! (k/get-in store [:foo]))))
-      (release-store store)                                                    
       (delete-store store))))
 
 (deftest exists-test
@@ -95,7 +100,7 @@
       (delete-store store))))
 
 (deftest binary-test
-  (testing "Test writing binary date"
+  (testing "Test writing binary data"
     (let [_ (println "Reading and writing binary data")
           store (<!! (new-jdbc-store conn :table "test_binary"))
           cb (atom false)

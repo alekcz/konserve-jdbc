@@ -25,6 +25,7 @@
 (def dbtypes ["h2" "h2:mem" "hsqldb" "jtds:sqlserver" "mysql" "oracle:oci" "oracle:thin" "postgresql" "redshift" "sqlite" "sqlserver" "mssql"])
 (def store-layout 1)
 (def max-buffer-size 16384)
+(defonce pool (atom nil))
 
 (defn str-uuid 
   [key] 
@@ -39,6 +40,10 @@
   [stream]
   { :input-stream stream
     :size nil})
+
+(defn pool-key [db]
+  (keyword
+    (str-uuid (select-keys db [:dbtype :jdbcUrl :host :port :user :password :dbname]))))
 
 (defrecord JDBCStore [store default-serializer serializers compressor encryptor read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
@@ -265,17 +270,6 @@
           (finally (async/close! res-ch))))
       res-ch)))
 
-(defn release-store [jdbc-store]
-  (let [res-ch (async/chan 1)]
-    (async/thread
-      (try
-        (when (-> jdbc-store :store :conn) 
-          (.close ^PooledDataSource (-> jdbc-store :store :conn))
-          (assoc-in jdbc-store [:store :conn] nil))
-        (catch Exception e (async/put! res-ch (prep-ex "Failed to release store" e)))
-        (finally (async/close! res-ch))))          
-    res-ch))
-
 (defn new-jdbc-store
   ([db & {:keys [table debug default-serializer serializers compressor encryptor read-handlers write-handlers]
                     :or {default-serializer :FressianSerializer
@@ -304,24 +298,29 @@
         (try
           (when-not dbtype 
               (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
-          (let [datasource (jdbc/get-datasource db)
-                ^PooledDataSource conn (connection/->pool ComboPooledDataSource db)
-                shutdown  (fn [] (release-store {:store {:db db :table clean-table :conn conn}}))]
-            
+          (let [id (pool-key db)
+                get-conn (fn []
+                            (if (nil? (get @pool id)) 
+                              (let [conns ^PooledDataSource (connection/->pool ComboPooledDataSource db)] 
+                                (swap! pool assoc id conns)
+                                conns)
+                              (get @pool id)))
+                shutdown  (fn [] (.close (get-conn)))]
             
             (.addShutdownHook (Runtime/getRuntime) (Thread. ^Runnable shutdown))  
-
-            (case dbtype
-              "postgresql" 
-                (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
-
-              ("mssql" "sqlserver")
-                (jdbc/execute! datasource [(str "IF OBJECT_ID(N'dbo." clean-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." clean-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
             
-              (jdbc/execute! datasource [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
-            
+            (with-open [con (jdbc/get-connection (get-conn))]
+              (case dbtype
+                "postgresql" 
+                  (jdbc/execute! con [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
+
+                ("mssql" "sqlserver")
+                  (jdbc/execute! con [(str "IF OBJECT_ID(N'dbo." clean-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." clean-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
+              
+                (jdbc/execute! con [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")])))
+              
             (async/put! res-ch
-              (map->JDBCStore { :store {:db db :table clean-table :ds datasource :conn conn}
+              (map->JDBCStore { :store {:id id :db db :table clean-table :conn get-conn}
                                 :default-serializer final-serializer
                                 :serializers (merge ser/key->serializer serializers)
                                 :compressor final-compressor
@@ -337,10 +336,7 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (jdbc/execute! (-> jdbc-store :store :ds) [(str "drop table " (-> jdbc-store :store :table))])
-        (when (-> jdbc-store :store :conn) 
-          (.close ^PooledDataSource (-> jdbc-store :store :conn))
-          (assoc-in jdbc-store [:store :conn] nil))
+        (jdbc/execute! (-> jdbc-store :store :db) [(str "drop table " (-> jdbc-store :store :table))])
         (catch Exception e (async/put! res-ch (prep-ex "Failed to delete store" e)))
         (finally (async/close! res-ch))))          
     res-ch))

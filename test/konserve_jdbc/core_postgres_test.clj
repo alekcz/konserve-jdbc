@@ -3,7 +3,7 @@
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
             [konserve.storage-layout :as kl]
-            [konserve-jdbc.core :refer [new-jdbc-store delete-store release-store]]
+            [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
             [konserve.compressor :as comp]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))
@@ -12,7 +12,11 @@
             :dbname "konserve"
             :host "localhost"
             :user "konserve"
-            :password "password"})
+            :password "password"
+            :initialPoolSize 25
+            :numHelperThreads 25
+            :minPoolSize 20
+            :maxPoolSize 50})
 
 (deftype UnknownType [])
 
@@ -59,7 +63,6 @@
       (is (= :foo (:key (<!! (k/get-meta store :foo)))))
       (<!! (k/assoc-in store [:baz] {:bar 42}))
       (is (= 42 (<!! (k/get-in store [:baz :bar]))))
-      (release-store store)
       (delete-store store))))
 
 (deftest update-value-test
@@ -70,7 +73,6 @@
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
       (is (= "baritone" (<!! (k/get-in store [:foo]))))
-      (release-store store)
       (delete-store store))))
 
 (deftest exists-test
@@ -85,7 +87,7 @@
       (delete-store store))))
 
 (deftest binary-test
-  (testing "Test writing binary date"
+  (testing "Test writing binary data"
     (let [_ (println "Reading and writing binary data")
           store (<!! (new-jdbc-store conn :table "test_binary"))
           cb (atom false)
@@ -209,10 +211,10 @@
 
 (deftest limit-test
   (testing "Rows returned limit test."
-    (let [num 20000
+    (let [num 2000
           _ (println (str "Writing " num " bits of data"))
           store (<!! (new-jdbc-store conn :table "test_limit"))
-          data {:random "map" :rand (rand)}]
+          data {:random "map"}]
       (time 
         (doseq [n (range num)]
           (<!! (k/assoc store (keyword (str "num-" n)) data))))
@@ -264,8 +266,7 @@
                         (if (= (type (k s)) clojure.lang.Atom)
                           (clojure.core/assoc-in s [k] (atom {})) 
                           (clojure.core/assoc-in s [k] (UnknownType.))))
-          corrupt (reduce corruptor store params) ; let's corrupt our store
-          corrupt-conn (assoc-in store [:store :conn] (UnknownType.))]
+          corrupt (reduce corruptor store params)] ; let's corrupt our store
       (is (exception? (<!! (new-jdbc-store {} :table "test_exceptions"))))
       (is (exception? (<!! (k/get corrupt :bad))))
       (is (exception? (<!! (k/get-meta corrupt :bad))))
@@ -277,5 +278,4 @@
       (is (exception? (<!! (k/keys corrupt))))
       (is (exception? (<!! (k/bget corrupt :bad (fn [_] nil)))))   
       (is (exception? (<!! (k/bassoc corrupt :binbar (byte-array (range 10))))))
-      (is (exception? (<!! (release-store corrupt-conn))))
       (is (exception? (<!! (delete-store corrupt)))))))
