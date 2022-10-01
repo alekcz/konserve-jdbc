@@ -17,6 +17,8 @@
             :numHelperThreads 25
             :minPoolSize 20
             :maxPoolSize 50})
+(def conn2 {:jdbcUrl "postgres://konserve:password@localhost/konserve"})
+(def conn3 {:jdbcUrl "postgres://konserve:password@localhost:5432/konserve"})
 
 (deftype UnknownType [])
 
@@ -68,7 +70,7 @@
 (deftest update-value-test
   (testing "Test updating values in the store"
     (let [_ (println "Updating values in the store")
-          store (<!! (new-jdbc-store conn :table "test_update"))]
+          store (<!! (new-jdbc-store conn2 :table "test_update"))]
       (<!! (k/assoc store :foo :baritone))
       (is (= :baritone (<!! (k/get-in store [:foo]))))
       (<!! (k/update-in store [:foo] name))
@@ -78,7 +80,7 @@
 (deftest exists-test
   (testing "Test check for existing key in the store"
     (let [_ (println "Checking if keys exist")
-          store (<!! (new-jdbc-store conn :table "test_exists"))]
+          store (<!! (new-jdbc-store conn3 :table "test_exists"))]
       (is (not (<!! (k/exists? store :foo))))
       (<!! (k/assoc store :foo :baritone))
       (is  (<!! (k/exists? store :foo)))

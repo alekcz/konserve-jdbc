@@ -33,7 +33,7 @@
 
 (defn prep-ex 
   [store ^String message ^Exception e]
-  (when (:debug store) 
+  (when (-> store :db :debug) 
     (.printStackTrace e))
   (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)}))
 
@@ -271,63 +271,85 @@
           (finally (async/close! res-ch))))
       res-ch)))
 
+(defn- clean-jdbcUrl [db]
+  (if-not (contains? db :jdbcUrl)
+    db
+    (let [[auth user password] (re-find #"//(.*):(.*)@" (:jdbcUrl db))
+          jdbcUrl (str "jdbc:"
+                    (-> (str/replace (:jdbcUrl db) #"jdbc:" "") 
+                        (str/replace "postgres://" "postgresql://")
+                        (str/replace auth "//")))
+          [_ dbtype] (re-find #"jdbc:(.*)://" jdbcUrl)]
+      (assoc db 
+        :jdbcUrl jdbcUrl 
+        :user user 
+        :password password 
+        :dbtype dbtype))))
+
+(defn- build-pool [db id]
+  (println db)
+  (when-not (:debug db)
+    (System/setProperties 
+      (doto (java.util.Properties. (System/getProperties))
+        (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
+        (.put "com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL" "OFF")))) 
+
+  (when-not (or (:dbtype db) (:subprotocol db) (:jdbcUrl db))
+    (throw (ex-info ":dbtype must be explicitly declared or a JDBC URL must be provided" {:options dbtypes})))
+
+  (when (nil? (get @pool id)) 
+    (let [conns ^PooledDataSource (connection/->pool ComboPooledDataSource db)
+          shutdown (fn [] (.close ^PooledDataSource conns))] 
+      (swap! pool assoc id conns)
+      (.close (jdbc/get-connection conns))
+      (.addShutdownHook (Runtime/getRuntime) 
+        (Thread. ^Runnable shutdown)))))
+
+(defn- create-table! [db id table]
+  (case (:dbtype db)
+    "postgresql" 
+      (jdbc/execute! (get @pool id) [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+
+    ("mssql" "sqlserver")
+      (jdbc/execute! (get @pool id) [(str "IF OBJECT_ID(N'dbo." table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
+            
+    (jdbc/execute! (get @pool id) [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")])))
+ 
 (defn new-jdbc-store
   ([db & {:keys [table debug default-serializer serializers compressor encryptor read-handlers write-handlers]
-                    :or {default-serializer :FressianSerializer
-                         table "konserve"
-                         debug false
-                         compressor comp/null-compressor
-                         encryptor encr/null-encryptor
-                         read-handlers (atom {})
-                         write-handlers (atom {})}}]                       
-    (let [res-ch (async/chan 1)
-          dbtype (or (:dbtype db) (:subprotocol db))
-          final-table (str "konserve_" (or (:table db) table))
-          final-debug (or (:debug db) debug)
-          clean-table (str/replace final-table #"[^0-9a-zA-Z:_]+" "_")
-          final-serializer (or (:serializer db) default-serializer)
-          final-compressor (or (:compressor db) compressor)
-          final-encryptor  (or (:encryptor db) encryptor)
-          db (assoc db :testConnectionOnCheckout true)]   
-      
-      (when-not final-debug
-        (System/setProperties 
-          (doto (java.util.Properties. (System/getProperties))
-            (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
-            (.put "com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL" "OFF")))) 
-      
+                  :or {default-serializer :FressianSerializer
+                        table "konserve"
+                        debug false
+                        compressor comp/null-compressor
+                        encryptor encr/null-encryptor
+                        read-handlers (atom {})
+                        write-handlers (atom {})}}]                       
+    (let [res-ch (async/chan 1)]    
       (async/go 
         (try
-          (when-not dbtype 
-              (throw (ex-info ":dbtype must be explicitly declared" {:options dbtypes})))
-          (let [id (pool-key db)
-                _ (when (nil? (get @pool id)) 
-                    (let [conns ^PooledDataSource (connection/->pool ComboPooledDataSource db)] 
-                      (swap! pool assoc id conns)))
-                shutdown  (fn [] (.close (get @pool id)))]
-            
-            (.addShutdownHook (Runtime/getRuntime) (Thread. ^Runnable shutdown))  
-            (.close (jdbc/get-connection (get @pool id)))
-            
-            (case dbtype
-              "postgresql" 
-                (jdbc/execute! (get @pool id) [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta bytea, data bytea)")])
-
-              ("mssql" "sqlserver")
-                (jdbc/execute! (get @pool id) [(str "IF OBJECT_ID(N'dbo." clean-table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." clean-table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
-            
-              (jdbc/execute! (get @pool id) [(str "create table if not exists " clean-table " (id varchar(100) primary key, meta longblob, data longblob)")]))
-              
-            (async/put! res-ch
-              (map->JDBCStore { :store {:id id :db db :table clean-table :conn pool :debug final-debug}
-                                :default-serializer final-serializer
-                                :serializers (merge ser/key->serializer serializers)
-                                :compressor final-compressor
-                                :encryptor final-encryptor
-                                :read-handlers read-handlers
-                                :write-handlers write-handlers
-                                :locks (atom {})})))
-          (catch Exception e (async/put! res-ch (prep-ex {:debug final-debug} "Failed to connect to store" e)))
+          (let [db  (-> db 
+                      (clean-jdbcUrl)
+                      (assoc  :testConnectionOnCheckout true)
+                      (update :debug #(or (:debug %) debug)))
+                actual-table (str "konserve_" (or (:table db) table))
+                final-table (str/replace actual-table #"[^0-9a-zA-Z:_]+" "_")
+                final-serializer (or (:serializer db) default-serializer)
+                final-compressor (or (:compressor db) compressor)
+                final-encryptor  (or (:encryptor db) encryptor)   
+                id (pool-key db)
+                _ (build-pool db id)
+                _ (create-table! db id final-table)
+                store (map->JDBCStore 
+                        { :store {:id id :db db :table final-table :conn pool}
+                          :default-serializer final-serializer
+                          :serializers (merge ser/key->serializer serializers)
+                          :compressor final-compressor
+                          :encryptor final-encryptor
+                          :read-handlers read-handlers
+                          :write-handlers write-handlers
+                          :locks (atom {})})]
+            (async/put! res-ch store))
+          (catch Exception e (async/put! res-ch (prep-ex {:store db} "Failed to connect to store" e)))
           (finally (async/close! res-ch))))
       res-ch)))
 

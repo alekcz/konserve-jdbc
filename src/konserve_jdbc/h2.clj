@@ -15,7 +15,7 @@
 (defn get-conn [store]
   (let [pool (-> store :conn)
         id (-> store :id)]
-    (get @pool id)))
+    ^PooledDataSource (get @pool id)))
 
 (defn split-header [bytes-or-blob]
   (when (some? bytes-or-blob) 
