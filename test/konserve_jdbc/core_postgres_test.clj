@@ -18,7 +18,12 @@
             :minPoolSize 20
             :maxPoolSize 50})
 (def conn2 {:jdbcUrl "postgres://konserve:password@localhost/konserve"})
-(def conn3 {:jdbcUrl "postgres://konserve:password@localhost:5432/konserve"})
+(def conn3 {:jdbcUrl "postgres://konserve:password@localhost:5432/konserve"
+            :user "fakeuser"
+            :password "fakepassword"})
+(def conn-binary-test {:jdbcUrl "postgres://localhost/konserve"
+                       :user "konserve"
+                       :password "password"})
 
 (deftype UnknownType [])
 
@@ -91,7 +96,7 @@
 (deftest binary-test
   (testing "Test writing binary data"
     (let [_ (println "Reading and writing binary data")
-          store (<!! (new-jdbc-store conn :table "test_binary"))
+          store (<!! (new-jdbc-store conn-binary-test :table "test_binary"))
           cb (atom false)
           cb2 (atom false)]
       (is (not (<!! (k/exists? store :binbar))))

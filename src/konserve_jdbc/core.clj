@@ -277,23 +277,15 @@
     (let [[auth user password] (re-find #"//(.*):(.*)@" (:jdbcUrl db))
           jdbcUrl (str "jdbc:"
                     (-> (str/replace (:jdbcUrl db) #"jdbc:" "") 
-                        (str/replace "postgres://" "postgresql://")
-                        (str/replace auth "//")))
-          [_ dbtype] (re-find #"jdbc:(.*)://" jdbcUrl)]
-      (assoc db 
-        :jdbcUrl jdbcUrl 
-        :user user 
-        :password password 
-        :dbtype dbtype))))
+                        (str/replace "postgres://" "postgresql://")))
+          jdbcUrl (if auth (str/replace jdbcUrl auth "//") jdbcUrl)
+          [_ dbtype] (re-find #"jdbc:(.*)://" jdbcUrl)
+      ndb (assoc db :jdbcUrl jdbcUrl :dbtype dbtype)]
+      (if (not-any? str/blank? [user password])
+        (assoc ndb :user user :password password)
+        ndb))))
 
 (defn- build-pool [db id]
-  (println db)
-  (when-not (:debug db)
-    (System/setProperties 
-      (doto (java.util.Properties. (System/getProperties))
-        (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
-        (.put "com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL" "OFF")))) 
-
   (when-not (or (:dbtype db) (:subprotocol db) (:jdbcUrl db))
     (throw (ex-info ":dbtype must be explicitly declared or a JDBC URL must be provided" {:options dbtypes})))
 
@@ -323,7 +315,14 @@
                         compressor comp/null-compressor
                         encryptor encr/null-encryptor
                         read-handlers (atom {})
-                        write-handlers (atom {})}}]                       
+                        write-handlers (atom {})}}]     
+                           
+    (when-not (some true? [(:debug db) debug])
+      (System/setProperties 
+        (doto (java.util.Properties. (System/getProperties))
+          (.put "com.mchange.v2.log.MLog" "com.mchange.v2.log.FallbackMLog")
+          (.put "com.mchange.v2.log.FallbackMLog.DEFAULT_CUTOFF_LEVEL" "OFF")))) 
+
     (let [res-ch (async/chan 1)]    
       (async/go 
         (try
