@@ -220,7 +220,7 @@
                                 reader (-> rserializer rencryptor rcompressor)]
                             (-deserialize reader read-handlers k))))
                 keys (map :key keys')]
-            (doall
+            (dorun
               (map #(async/put! res-ch %) keys))) 
           (catch Exception e (async/put! res-ch (prep-ex store "Failed to retrieve keys from store" e)))
           (finally (async/close! res-ch))))
