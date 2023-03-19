@@ -2,7 +2,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve.storage-layout :as kl]
+            [konserve.impl.storage-layout :as kl]
             [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
             [malli.generator :as mg]
             [next.jdbc :as jdbc]))

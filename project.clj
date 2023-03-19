@@ -10,7 +10,7 @@
                  [mysql/mysql-connector-java "8.0.20"]
                  [org.postgresql/postgresql "42.5.0"]
                  [org.xerial/sqlite-jdbc "3.39.3.0"]
-                 [io.replikativ/konserve "0.6.0-alpha3"]
+                 [io.replikativ/konserve "0.7.285"]
                  [com.microsoft.sqlserver/mssql-jdbc "9.1.1.jre8-preview"]
                  [com.mchange/c3p0 "0.9.5.5"]]
   :javac-options ["--release" "8" "-g"]

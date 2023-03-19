@@ -2,8 +2,9 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.core.async :refer [<!!] :as async]
             [konserve.core :as k]
-            [konserve.storage-layout :as kl]
+            [konserve.impl.storage-layout :as kl]
             [konserve-jdbc.core :refer [new-jdbc-store delete-store]]
+            [konserve.compliance-test :as kc]
             [malli.generator :as mg]
             [clojure.java.io :as io])
   (:import  [java.io File]))
@@ -34,6 +35,11 @@
     :user "sa"
     :password ""
    })
+
+(deftest compliance-test
+  (testing "Test compliance to konserve protocol"
+    (let [_ (println "Running compliance test")]
+      (kc/compliance-test (<!! (new-jdbc-store conn :table "user@name"))))))
 
 (deftest get-nil-test
   (testing "Test getting on empty store"
