@@ -298,14 +298,16 @@
         (Thread. ^Runnable shutdown)))))
 
 (defn- create-table! [db id table]
-  (case (:dbtype db)
-    "postgresql" 
-      (jdbc/execute! (get @pool id) [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
+  (let [res  (try (jdbc/execute! (get @pool id) [(str "select 1 from " table " limit 1")]) (catch Exception _e []))]
+    (when (empty? res)
+      (case (:dbtype db)
+        "postgresql" 
+          (jdbc/execute! (get @pool id) [(str "create table if not exists " table " (id varchar(100) primary key, meta bytea, data bytea)")])
 
-    ("mssql" "sqlserver")
-      (jdbc/execute! (get @pool id) [(str "IF OBJECT_ID(N'dbo." table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
-            
-    (jdbc/execute! (get @pool id) [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")])))
+        ("mssql" "sqlserver")
+          (jdbc/execute! (get @pool id) [(str "IF OBJECT_ID(N'dbo." table  "', N'U') IS NULL BEGIN  CREATE TABLE dbo." table " (id varchar(100) primary key, meta varbinary(max), data varbinary(max)); END;")])
+                
+        (jdbc/execute! (get @pool id) [(str "create table if not exists " table " (id varchar(100) primary key, meta longblob, data longblob)")])))))
  
 (defn new-jdbc-store
   ([db & {:keys [table debug default-serializer serializers compressor encryptor read-handlers write-handlers]
